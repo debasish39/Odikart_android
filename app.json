@@ -1,0 +1,76 @@
+{
+  "expo": {
+    "name": "OdiKart",
+    "slug": "android_odikart",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/odikart.png",
+    "scheme": "odikart",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/images/odikart.png"
+    },
+    "android": {
+      "package": "in.odikart.app",
+      "googleServicesFile": "./google-services.json",
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "odikart.in",
+              "pathPrefix": "/products/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/odikart.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Odikart to use your microphone for voice search.",
+          "speechRecognitionPermission": "Allow Odikart to recognize your spoken product searches."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#c5d6fa"
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a"]
+          }
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "54aa1792-1a31-4acb-8417-955f63555712"
+      }
+    }
+  }
+}

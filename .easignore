@@ -1,0 +1,7 @@
+node_modules/react-native-razorpay/sampleApps
+node_modules/react-native-razorpay/example
+android/.gradle
+android/build
+android/app/build
+dist
+dist-test
