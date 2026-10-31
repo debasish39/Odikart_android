@@ -1,3 +1,4 @@
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -8,6 +9,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,6 +22,13 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import {
+  addToCart as addCartItem,
+  decreaseCartItem,
+  getCart,
+  increaseCartItem,
+} from "../api/cart";
 
 import { useFocusEffect, useRouter } from "expo-router";
 
@@ -33,6 +42,8 @@ type WishlistProduct = {
   name: string;
 
   image?: string;
+  images?: string[];
+  gallery?: string[];
 
   price: number;
 
@@ -66,10 +77,8 @@ type CustomAlertState = {
 export default function WishlistScreen() {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
-  const cardImageSize = Math.min(
-    190,
-    Math.max(112, (screenWidth - 42) * 0.485),
-  );
+  const cardImageSize = (screenWidth - 28) * 0.485;
+  const cardImageHeight = Math.max(96, Math.min(120, cardImageSize * 0.62));
   const bannerShine = useRef(new Animated.Value(-1)).current;
 
   useEffect(() => {
@@ -93,6 +102,9 @@ export default function WishlistScreen() {
   }, [bannerShine]);
 
   const [products, setProducts] = useState<WishlistProduct[]>(MOCK_WISHLIST);
+  const [activeImageIndexes, setActiveImageIndexes] = useState<
+    Record<string, number>
+  >({});
 
   // State for the search field and category chips.
   const [searchQuery, setSearchQuery] = useState("");
@@ -134,6 +146,10 @@ export default function WishlistScreen() {
   }, []);
 
   const [addingToCartId, setAddingToCartId] = useState<string | null>(null);
+  const [cartQuantities, setCartQuantities] = useState<Record<string, number>>(
+    {},
+  );
+  const cartBusyRef = useRef(false);
   const [customAlert, setCustomAlert] = useState<CustomAlertState>(null);
   const alertScale = useRef(new Animated.Value(0.92)).current;
   const alertOpacity = useRef(new Animated.Value(0)).current;
@@ -250,6 +266,20 @@ export default function WishlistScreen() {
             name: item?.title || product?.title || product?.name || "Product",
 
             image,
+            images: Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(product?.media?.images)
+                    ? product.media.images
+                    : []),
+                  ...variantImages,
+                  image,
+                ].filter(
+                  (uri): uri is string =>
+                    typeof uri === "string" && uri.trim().length > 0,
+                ),
+              ),
+            ),
 
             variantSku: String(
               selectedVariant?.sku || selectedVariant?.variantSku || "",
@@ -567,6 +597,116 @@ export default function WishlistScreen() {
     }
   };
 
+  const syncCartQuantities = useCallback(async () => {
+    try {
+      const response: any = await getCart();
+      const items = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.items)
+          ? response.items
+          : Array.isArray(response?.cartItems)
+            ? response.cartItems
+            : Array.isArray(response?.data?.items)
+              ? response.data.items
+              : [];
+      const next: Record<string, number> = {};
+      items.forEach((cartItem: any) => {
+        const id = String(
+          cartItem.productId ||
+            cartItem.product?._id ||
+            cartItem.product?._id ||
+            "",
+        );
+        if (id) next[id] = Math.max(0, Number(cartItem.quantity) || 0);
+      });
+      setCartQuantities(next);
+    } catch (error) {
+      console.log("WISHLIST CART SYNC ERROR:", error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void syncCartQuantities();
+    }, [syncCartQuantities]),
+  );
+
+  const changeWishlistCartQuantity = async (
+    product: WishlistProduct,
+    direction: "increase" | "decrease",
+  ) => {
+    if (cartBusyRef.current) return;
+    const currentQuantity = cartQuantities[product._id] || 0;
+    if (direction === "decrease" && currentQuantity <= 0) return;
+    cartBusyRef.current = true;
+    try {
+      let variantSku = product.variantSku;
+      if (!variantSku) {
+        const response = await api.get(`/products/${product._id}`);
+        const fullProduct =
+          response?.data?.product || response?.data?.data || response?.data;
+        const variants = Array.isArray(fullProduct?.variants)
+          ? fullProduct.variants.filter((v: any) => v?.isActive !== false)
+          : [];
+        const selected =
+          variants.find(
+            (v: any) => v?.isDefault === true || v?.isDefaultVariant === true,
+          ) ||
+          [...variants].sort(
+            (a: any, b: any) =>
+              Number(a?.price ?? Infinity) - Number(b?.price ?? Infinity),
+          )[0];
+        variantSku = selected?.sku || selected?.variantSku;
+      }
+      if (!variantSku) {
+        showCustomAlert({
+          title: "Choose an option",
+          message:
+            "Please choose a size, colour, or other available option first.",
+          kind: "warning",
+          buttons: [
+            {
+              text: "Choose options",
+              style: "primary",
+              onPress: () => router.push(`/product/${product._id}` as any),
+            },
+          ],
+        });
+        return;
+      }
+      if (direction === "increase") {
+        if (currentQuantity === 0) {
+          await addCartItem({
+            productId: product._id,
+            variantSku,
+            quantity: 1,
+            image: product.image,
+          });
+        } else {
+          await increaseCartItem({ productId: product._id, variantSku });
+        }
+      } else {
+        await decreaseCartItem({ productId: product._id, variantSku });
+      }
+      await syncCartQuantities();
+    } catch (error: any) {
+      console.log(
+        "WISHLIST CART QUANTITY ERROR:",
+        error?.response?.data || error?.message || error,
+      );
+      showCustomAlert({
+        title: "Cart update failed",
+        message:
+          error?.response?.data?.message ||
+          "We couldn't update the cart. Please try again.",
+        kind: "error",
+        buttons: [{ text: "Okay", style: "primary" }],
+      });
+    } finally {
+      cartBusyRef.current = false;
+    }
+  };
+
   /* =========================================================
       PRODUCT CARD
 
@@ -585,33 +725,85 @@ export default function WishlistScreen() {
 
         ================================================= */}
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.imageContainer,
-
-            pressed && styles.pressed,
-          ]}
-          onPress={() => openProduct(item._id)}
-        >
-          {item.image ? (
-            <Image
-              source={{
-                uri: item.image,
-              }}
-              style={styles.productImage}
-              resizeMode="contain"
-            />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons
-                name="image-outline"
-                size={36}
-                color={colors.textMuted}
-              />
-
-              <Text style={styles.placeholderText}>No image</Text>
-            </View>
-          )}
+        <View style={[styles.imageContainer, { height: cardImageHeight + 10 }]}>
+          {(() => {
+            const gallery = Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(item.images) ? item.images : []),
+                  ...(Array.isArray(item.gallery) ? item.gallery : []),
+                  item.image,
+                ].filter(
+                  (uri): uri is string =>
+                    typeof uri === "string" && uri.trim().length > 0,
+                ),
+              ),
+            );
+            return gallery.length > 0 ? (
+              <>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.productImageCarousel}
+                  contentContainerStyle={styles.productImageCarouselContent}
+                  onMomentumScrollEnd={(event) => {
+                    const nextIndex = Math.round(
+                      event.nativeEvent.contentOffset.x / cardImageSize,
+                    );
+                    setActiveImageIndexes((previous) => ({
+                      ...previous,
+                      [item._id]: Math.max(
+                        0,
+                        Math.min(nextIndex, gallery.length - 1),
+                      ),
+                    }));
+                  }}
+                >
+                  {gallery.map((uri, index) => (
+                    <Pressable
+                      key={`${item._id}-wishlist-image-${index}`}
+                      onPress={() => openProduct(item._id)}
+                      style={{ width: cardImageSize, height: cardImageHeight }}
+                      accessibilityRole="image"
+                      accessibilityLabel={`Open ${item.name}, image ${index + 1} of ${gallery.length}`}
+                    >
+                      <Image
+                        source={{ uri }}
+                        style={styles.productImage}
+                        resizeMode="contain"
+                        accessibilityLabel={`${item.name} image ${index + 1}`}
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                {gallery.length > 1 ? (
+                  <View pointerEvents="none" style={styles.carouselIndicators}>
+                    {gallery.map((_, index) => (
+                      <View
+                        key={`${item._id}-wishlist-dot-${index}`}
+                        style={[
+                          styles.carouselDot,
+                          (activeImageIndexes[item._id] || 0) === index &&
+                            styles.carouselDotActive,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Ionicons
+                  name="image-outline"
+                  size={36}
+                  color={colors.textMuted}
+                />
+                <Text style={styles.placeholderText}>No image</Text>
+              </View>
+            );
+          })()}
 
           <View pointerEvents="none" style={styles.productShineClip}>
             <Animated.View
@@ -653,7 +845,7 @@ export default function WishlistScreen() {
           >
             <Ionicons name="heart" size={19} color={colors.error} />
           </Pressable>
-        </Pressable>
+        </View>
 
         {/* =================================================
 
@@ -665,7 +857,11 @@ export default function WishlistScreen() {
           <Pressable onPress={() => openProduct(item._id)}>
             {/* PRODUCT NAME */}
 
-            <Text style={styles.productName} numberOfLines={2}>
+            <Text
+              style={styles.productName}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {item.name}
             </Text>
 
@@ -700,30 +896,81 @@ export default function WishlistScreen() {
             </View>
           </Pressable>
 
-          {/* ADD TO CART */}
-
-          {/* <View style={styles.cartActionRow}>
-            <Text style={styles.cartHint}>Add to cart</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${item.name} to cart`}
-              style={({ pressed }) => [
-                styles.cartButton,
-                pressed && styles.cartButtonPressed,
-              ]}
-              onPress={() => addToCart(item)}
-              disabled={addingToCartId !== null}
-              hitSlop={6}
-            >
-              {addingToCartId === item._id ? (
-                <Animated.View style={styles.buttonPulse}>
-                  <Ionicons name="ellipsis-horizontal" size={20} color={colors.textWhite} />
-                </Animated.View>
-              ) : (
-                <Ionicons name="add" size={23} color={colors.textWhite} />
-              )}
-            </Pressable>
-          </View> */}
+          {/* CATEGORY-PAGE STYLE CART ACTION */}
+          <View style={styles.cartActionRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cartHint}>
+                {cartQuantities[item._id] > 0 ? "In your cart" : "Add to cart"}
+              </Text>
+            </View>
+            {cartQuantities[item._id] > 0 ? (
+              <LinearGradient
+                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.quantityStepper}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Decrease ${item.name} quantity`}
+                  hitSlop={6}
+                  style={styles.stepperAction}
+                  onPress={() =>
+                    void changeWishlistCartQuantity(item, "decrease")
+                  }
+                >
+                  <Ionicons name="remove" size={17} color="#4F46E5" />
+                </Pressable>
+                <Text style={styles.cartQuantityText}>
+                  {cartQuantities[item._id]}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Increase ${item.name} quantity`}
+                  hitSlop={6}
+                  style={styles.stepperAction}
+                  onPress={() =>
+                    void changeWishlistCartQuantity(item, "increase")
+                  }
+                >
+                  <Ionicons name="add" size={17} color="#4F46E5" />
+                </Pressable>
+              </LinearGradient>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${item.name} to cart`}
+                style={({ pressed }) => [
+                  styles.cartButton,
+                  pressed && styles.cartButtonPressed,
+                  addingToCartId !== null && { opacity: 0.55 },
+                ]}
+                onPress={() =>
+                  void changeWishlistCartQuantity(item, "increase")
+                }
+                disabled={addingToCartId !== null}
+                hitSlop={6}
+              >
+                {addingToCartId === item._id ? (
+                  <Ionicons
+                    name="ellipsis-horizontal"
+                    size={20}
+                    color="#FFFFFF"
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.addGradient}
+                  >
+                    <Ionicons name="add" size={18} color="#FFFFFF" />
+                    <Text style={styles.addButtonText}>ADD</Text>
+                  </LinearGradient>
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -737,7 +984,14 @@ export default function WishlistScreen() {
 
   const WishlistSkeletonCard = () => (
     <View style={[styles.card, styles.skeletonCard]}>
-      <View style={styles.skeletonImage}>
+      {/* Match the real product card's taller image area and overlays. */}
+      <View
+        style={[
+          styles.imageContainer,
+          styles.skeletonImageContainer,
+          { height: cardImageHeight + 10 },
+        ]}
+      >
         <View style={styles.skeletonImageGlow} />
         <Animated.View
           pointerEvents="none"
@@ -756,27 +1010,35 @@ export default function WishlistScreen() {
             },
           ]}
         />
-        <View style={styles.skeletonImageDot}>
-          <Ionicons name="sparkles" size={17} color="#8A82FF" />
+        <View style={styles.skeletonDiscountBadge} />
+        <View style={styles.skeletonHeartButton}>
+          <Ionicons name="heart" size={17} color="#D8DDF5" />
         </View>
       </View>
 
+      {/* Same order and compact spacing as the live product information. */}
       <View style={styles.skeletonInfo}>
-        <View style={[styles.skeletonLine, styles.skeletonLineLong]} />
-        <View style={[styles.skeletonLine, styles.skeletonLineMedium]} />
+        <View style={[styles.skeletonLine, styles.skeletonProductName]} />
 
         <View style={styles.skeletonRatingRow}>
           <View style={styles.skeletonRating} />
           <View style={styles.skeletonReview} />
         </View>
 
-        <View style={styles.skeletonPrice} />
+        <View style={styles.skeletonPriceRow}>
+          <View style={styles.skeletonPrice} />
+          <View style={styles.skeletonOriginalPrice} />
+        </View>
+
         <View style={styles.skeletonCartRow}>
-          <View style={styles.skeletonPriceSmall} />
+          <View style={styles.skeletonCartHint} />
           <View style={styles.skeletonButton}>
-            <Ionicons name="add" size={20} color="#FFFFFF" />
+            <View style={styles.skeletonButtonPlus} />
+            <View style={styles.skeletonButtonPlusVertical} />
+            <View style={styles.skeletonButtonLabel} />
           </View>
         </View>
+
         <Animated.View
           pointerEvents="none"
           style={[
@@ -895,13 +1157,6 @@ export default function WishlistScreen() {
             returnKeyType="search"
           />
         </View>
-        <Pressable
-          style={styles.toolbarButton}
-          onPress={() => setSelectedCategory("All")}
-        >
-          <Ionicons name="options-outline" size={18} color="#312E81" />
-          <Text style={styles.toolbarButtonText}>Filter</Text>
-        </Pressable>
       </View>
 
       <View
@@ -1023,6 +1278,30 @@ export default function WishlistScreen() {
             ListHeaderComponent={renderListHeader}
             keyExtractor={(item) => item._id}
             renderItem={renderProduct}
+            ListEmptyComponent={
+              <View style={styles.noResults}>
+                <View style={styles.noResultsIcon}>
+                  <Ionicons name="search-outline" size={28} color="#5145CD" />
+                </View>
+                <Text style={styles.noResultsTitle}>
+                  No matching favourites
+                </Text>
+                <Text style={styles.noResultsText}>
+                  Try another search or category.
+                </Text>
+                <Pressable
+                  style={styles.resetFiltersButton}
+                  onPress={() => {
+                    setSearchQuery("");
+                    setSelectedCategory("All");
+                  }}
+                >
+                  <Text style={styles.resetFiltersText}>
+                    Clear search & filters
+                  </Text>
+                </Pressable>
+              </View>
+            }
             numColumns={2}
             columnWrapperStyle={styles.columnWrapper}
             contentContainerStyle={styles.listContent}
@@ -1357,8 +1636,8 @@ const styles = StyleSheet.create({
   ======================================================= */
 
   imageContainer: {
-    height: 120,
-
+    // Taller image area gives product photos more room while keeping two columns.
+    height: 106,
     position: "relative",
 
     alignItems: "center",
@@ -1385,10 +1664,45 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
 
-  productImage: {
-    width: "99%",
+  productImageCarousel: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
 
-    height: "92%",
+  productImageCarouselContent: {
+    alignItems: "center",
+  },
+
+  productImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  carouselIndicators: {
+    position: "absolute",
+    bottom: 4,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.78)",
+  },
+
+  carouselDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#A5B4FC",
+  },
+
+  carouselDotActive: {
+    width: 12,
+    backgroundColor: "#4F46E5",
   },
 
   imagePlaceholder: {
@@ -1516,15 +1830,14 @@ const styles = StyleSheet.create({
   ======================================================= */
 
   productInfo: {
-    padding: 9,
+    padding: 8,
+    backgroundColor: "#FFFFFF",
   },
 
   productName: {
-    // minHeight: 38,
-
-    fontSize: 14,
-
-    // lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 16,
+    height: 18,
 
     fontWeight: "800",
 
@@ -1548,7 +1861,7 @@ const styles = StyleSheet.create({
   },
 
   ratingBadge: {
-    minHeight: 22,
+    minHeight: 18,
 
     flexDirection: "row",
 
@@ -1556,9 +1869,9 @@ const styles = StyleSheet.create({
 
     gap: 3,
 
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
 
-    paddingVertical: 4,
+    paddingVertical: 2,
 
     borderRadius: 7,
 
@@ -1600,7 +1913,7 @@ const styles = StyleSheet.create({
   },
 
   price: {
-    fontSize: 17,
+    fontSize: 14,
 
     fontWeight: "900",
 
@@ -1626,8 +1939,8 @@ const styles = StyleSheet.create({
   ======================================================= */
 
   cartActionRow: {
-    minHeight: 36,
-    marginTop: 7,
+    minHeight: 30,
+    marginTop: 5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1642,18 +1955,55 @@ const styles = StyleSheet.create({
   },
 
   cartButton: {
-    width: 36,
-    height: 34,
+    minWidth: 68,
+    height: 30,
     zIndex: 2,
     borderRadius: 11,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: Platform.OS === "ios" ? 0.16 : 0,
-    shadowRadius: 6,
-    elevation: Platform.OS === "android" ? 2 : 0,
+    backgroundColor: "#4F46E5",
+  },
+
+  addGradient: {
+    width: "100%",
+    height: "100%",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    borderRadius: 11,
+  },
+
+  addButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
+
+  quantityStepper: {
+    height: 30,
+    minWidth: 94,
+    borderRadius: 11,
+    padding: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 5,
+  },
+
+  stepperAction: {
+    width: 23,
+    height: 23,
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  cartQuantityText: {
+    minWidth: 18,
+    textAlign: "center",
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
 
   cartButtonPressed: {
@@ -1877,22 +2227,19 @@ const styles = StyleSheet.create({
   skeletonCard: {
     borderColor: "#E5E9FF",
     shadowColor: "#6475FF",
-    shadowOpacity: Platform.OS === "ios" ? 0.09 : 0,
-    shadowRadius: 14,
+    shadowOpacity: Platform.OS === "ios" ? 0.07 : 0,
+    shadowRadius: 16,
     elevation: Platform.OS === "android" ? 3 : 0,
   },
 
-  skeletonImage: {
-    height: 120,
-    backgroundColor: "#EEF1FF",
-    overflow: "hidden",
-    position: "relative",
+  skeletonImageContainer: {
+    backgroundColor: "#F1F3FF",
   },
 
   skeletonImageGlow: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#F8F9FF",
-    opacity: 0.75,
+    opacity: 0.78,
   },
 
   skeletonShine: {
@@ -1900,31 +2247,37 @@ const styles = StyleSheet.create({
     top: -18,
     bottom: -18,
     left: 0,
-    width: 62,
+    width: 52,
     backgroundColor: "rgba(255,255,255,0.92)",
-    opacity: 0.9,
+    opacity: 0.88,
   },
 
-  skeletonImageDot: {
+  skeletonDiscountBadge: {
     position: "absolute",
-    width: 34,
-    height: 34,
-    borderRadius: 13,
+    top: 9,
+    left: 9,
+    width: 48,
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: "#DDE2FF",
+  },
+
+  skeletonHeartButton: {
+    position: "absolute",
     top: 9,
     right: 9,
-    backgroundColor: "rgba(255,255,255,0.82)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.98)",
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#6B63FF",
-    shadowOpacity: 0.22,
-    shadowRadius: 9,
-    elevation: 2,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "#E8EAFA",
   },
 
   skeletonInfo: {
-    padding: 11,
+    padding: 8,
     overflow: "hidden",
     position: "relative",
     backgroundColor: "#FFFFFF",
@@ -1935,80 +2288,119 @@ const styles = StyleSheet.create({
     top: -20,
     bottom: -20,
     left: 0,
-    width: 52,
-    backgroundColor: "rgba(255,255,255,0.78)",
-    opacity: 0.9,
+    width: 46,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    opacity: 0.8,
   },
 
   skeletonLine: {
     height: 12,
     borderRadius: 6,
-    backgroundColor: colors.surfaceSoft,
-    marginBottom: 8,
+    backgroundColor: "#EDF0FA",
   },
 
-  skeletonLineLong: {
+  skeletonProductName: {
     width: "88%",
-  },
-
-  skeletonLineMedium: {
-    width: "62%",
+    height: 12,
+    marginTop: 3,
+    marginBottom: 6,
   },
 
   skeletonRatingRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
-    marginBottom: 10,
+    marginTop: 1,
+    marginBottom: 5,
   },
 
   skeletonRating: {
-    width: 46,
-    height: 20,
+    width: 39,
+    height: 18,
     borderRadius: 7,
-    backgroundColor: colors.surfaceSoft,
+    backgroundColor: "#E8ECF8",
   },
 
   skeletonReview: {
-    width: 48,
-    height: 9,
+    width: 42,
+    height: 8,
     borderRadius: 5,
-    backgroundColor: colors.surfaceSoft,
-    marginLeft: 7,
+    backgroundColor: "#EEF0F8",
+    marginLeft: 6,
+  },
+
+  skeletonPriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    minHeight: 20,
+    marginTop: 1,
   },
 
   skeletonPrice: {
-    width: 72,
-    height: 17,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceSoft,
-    marginBottom: 11,
+    width: 54,
+    height: 14,
+    borderRadius: 5,
+    backgroundColor: "#E5E9FF",
+  },
+
+  skeletonOriginalPrice: {
+    width: 34,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#F0F1F8",
   },
 
   skeletonCartRow: {
-    minHeight: 36,
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 2,
+    gap: 6,
+    marginTop: 5,
   },
 
-  skeletonPriceSmall: {
-    width: 62,
-    height: 17,
-    borderRadius: 6,
-    backgroundColor: "#E5E7FF",
+  skeletonCartHint: {
+    flex: 1,
+    maxWidth: "48%",
+    height: 8,
+    borderRadius: 5,
+    backgroundColor: "#EEF0F8",
   },
 
   skeletonButton: {
-    width: 36,
-    height: 34,
+    width: 68,
+    height: 30,
     borderRadius: 11,
+    overflow: "hidden",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#C7CBFF",
-    borderWidth: 1,
-    borderColor: "#B4BAFF",
+    gap: 3,
+    backgroundColor: "#DDE2FF",
+  },
+
+  skeletonButtonPlus: {
+    width: 9,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "#B8C0F6",
+  },
+
+  skeletonButtonPlusVertical: {
+    position: "absolute",
+    left: 26,
+    width: 2,
+    height: 9,
+    borderRadius: 1,
+    backgroundColor: "#B8C0F6",
+  },
+
+  skeletonButtonLabel: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    marginLeft: 3,
+    backgroundColor: "#B8C0F6",
   },
 
   loadingContainer: {
@@ -2410,6 +2802,71 @@ const styles = StyleSheet.create({
     width: 48,
     backgroundColor: "rgba(255,255,255,0.34)",
     opacity: 0.85,
+  },
+  categorySection: {
+    marginTop: 2,
+    marginBottom: 13,
+  },
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  sectionHeading: {
+    color: "#171B48",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: -0.2,
+  },
+  sectionHint: {
+    color: "#737B9B",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  noResults: {
+    width: "100%",
+    minHeight: 230,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  noResultsIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF0FF",
+    marginBottom: 12,
+  },
+  noResultsTitle: {
+    color: "#171B48",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  noResultsText: {
+    color: "#737B9B",
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: "center",
+  },
+  resetFiltersButton: {
+    marginTop: 15,
+    minHeight: 40,
+    borderRadius: 13,
+    paddingHorizontal: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#5145F5",
+  },
+  resetFiltersText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
   },
   categoryRow: {
     paddingBottom: 5,

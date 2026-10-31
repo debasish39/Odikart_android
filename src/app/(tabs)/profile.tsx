@@ -1,3 +1,4 @@
+
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
@@ -16,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 
 import api from "../../api/api";
 import { useAuth } from "../../hooks/useAuth";
@@ -372,7 +374,7 @@ export default function ProfileScreen() {
     try {
       await logout();
       setLogoutModalVisible(false);
-      router.replace("/(auth)/phone-login" as any);
+      router.replace("/(auth)/login-modal" as any);
     } catch (error) {
       console.error("LOGOUT ERROR:", error);
     } finally {
@@ -559,16 +561,23 @@ export default function ProfileScreen() {
           ]}
           onPress={() => navigate("/profile/coupons")}
         >
-          <View style={styles.plusCrown}>
-            <Ionicons name="trophy" size={27} color="#FFE08A" />
-          </View>
-          <View style={styles.plusCopy}>
-            <Text style={styles.plusTitle}>OdiKart Plus</Text>
-            <Text style={styles.plusSubtitle}>
-              Shop more. Save more. Discover great deals.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+          <LinearGradient
+            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={styles.plusBannerGradient}
+          >
+            <View style={styles.plusCrown}>
+              <Ionicons name="trophy" size={27} color="#FFE08A" />
+            </View>
+            <View style={styles.plusCopy}>
+              <Text style={styles.plusTitle}>OdiKart Plus</Text>
+              <Text style={styles.plusSubtitle}>
+                Shop more. Save more. Discover great deals.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+          </LinearGradient>
         </Pressable>
 
         <View style={styles.shortcutGrid}>
@@ -595,7 +604,7 @@ export default function ProfileScreen() {
               icon: "cart" as IconName,
               tint: "#2563EB",
               bg: "#DBEAFE",
-              route: "/(tabs)/cart",
+              route: "/cart",
             },
             {
               title: "Coupons",
@@ -1631,7 +1640,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 15,
     borderRadius: 19,
-    backgroundColor: "#5145F5",
+    backgroundColor: "transparent",
+    padding: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 0,
+    overflow: "hidden",
+  },
+  plusBannerGradient: {
+    minHeight: 86,
+    width: "100%",
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 19,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -8,7 +9,6 @@ import React, {
 
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Image,
@@ -50,6 +50,7 @@ type NotificationItem = {
   type?: NotificationType;
   title?: string;
   message?: string;
+  imageUrl?: string;
   orderId?: string | null;
   link?: string;
   isRead?: boolean;
@@ -72,6 +73,46 @@ type NotificationSettings = {
 type FilterType = "all" | "order" | "offer" | "account" | "others";
 
 const NOTIFICATIONS_CACHE_KEY = "odikart_notifications_cache_v1";
+
+/** Persist notification changes without letting a cache failure crash the screen.
+ * Preserve the existing in-app notification setting when updating the cache.
+ */
+async function persistNotificationsCache(
+  notifications: NotificationItem[],
+): Promise<void> {
+  try {
+    let notificationsEnabled = true;
+    let settings: Partial<NotificationSettings> | undefined;
+
+    try {
+      const existing = await AsyncStorage.getItem(NOTIFICATIONS_CACHE_KEY);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (typeof parsed?.notificationsEnabled === "boolean") {
+          notificationsEnabled = parsed.notificationsEnabled;
+        }
+        if (parsed?.settings && typeof parsed.settings === "object") {
+          settings = parsed.settings;
+        }
+      }
+    } catch (readError) {
+      console.log("NOTIFICATIONS CACHE READ BEFORE WRITE ERROR:", readError);
+    }
+
+    await AsyncStorage.setItem(
+      NOTIFICATIONS_CACHE_KEY,
+      JSON.stringify({
+        notifications,
+        notificationsEnabled,
+        ...(settings ? { settings } : {}),
+        cachedAt: new Date().toISOString(),
+      }),
+    );
+  } catch (error) {
+    // Cache persistence is best-effort; it must never break notification actions.
+    console.log("NOTIFICATIONS CACHE WRITE ERROR:", error);
+  }
+}
 
 /* =========================================================
    SHINE
@@ -277,6 +318,9 @@ export default function NotificationsScreen() {
   const hasLoadedOnce = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expandedNotificationId, setExpandedNotificationId] = useState<
+    string | null
+  >(null);
   const [filter, setFilter] = useState<FilterType>("all");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NotificationItem | null>(
@@ -284,6 +328,11 @@ export default function NotificationsScreen() {
   );
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [designedAlert, setDesignedAlert] = useState<{ title: string; message: string; kind?: "error" | "success" | "info" } | null>(null);
+
+  const showDesignedAlert = useCallback((title: string, message: string, kind: "error" | "success" | "info" = "error") => {
+    setDesignedAlert({ title, message, kind });
+  }, []);
 
   const [settings, setSettings] = useState<NotificationSettings>({
     inApp: true,
@@ -345,7 +394,7 @@ export default function NotificationsScreen() {
             notificationsEnabled:
               typeof data?.notificationsEnabled === "boolean"
                 ? data.notificationsEnabled
-                : false,
+                : true,
             cachedAt: new Date().toISOString(),
           }),
         );
@@ -359,11 +408,10 @@ export default function NotificationsScreen() {
 
       // Keep cached/current notifications on network failure.
       if (!hasLoadedOnce.current && notifications.length === 0) {
-        Alert.alert(
+        showDesignedAlert(
           "Notifications",
-          error?.response?.data?.message ||
-            error?.message ||
-            "Unable to load notifications.",
+          error?.response?.data?.message || error?.message || "Unable to load notifications.",
+          "error",
         );
       }
     } finally {
@@ -371,9 +419,22 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [showDesignedAlert]);
 
   const loadSettings = useCallback(async () => {
+    // Hydrate saved preferences immediately; the server response refreshes them below.
+    try {
+      const cached = await AsyncStorage.getItem(NOTIFICATIONS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.settings && typeof parsed.settings === "object") {
+          setSettings((previous) => ({ ...previous, ...parsed.settings }));
+        }
+      }
+    } catch (cacheError) {
+      console.log("NOTIFICATION SETTINGS CACHE READ ERROR:", cacheError);
+    }
+
     try {
       const response = await api.get("/auth/me");
 
@@ -501,10 +562,10 @@ export default function NotificationsScreen() {
         error?.response?.data || error,
       );
 
-      Alert.alert(
-        "Notification",
-        error?.response?.data?.message ||
-          "Unable to mark notification as read.",
+      showDesignedAlert(
+        "Couldn’t update notification",
+        error?.response?.data?.message || "Unable to mark notification as read.",
+        "error",
       );
     } finally {
       setBusyId(null);
@@ -518,17 +579,27 @@ export default function NotificationsScreen() {
   const handleNotificationPress = async (notification: NotificationItem) => {
     if (busyId) return;
 
+    // Mark the notification as read, then send offers/promotional updates
+    // directly to the Home tab, regardless of any stored notification link.
     await markOneAsRead(notification);
 
-    const destination =
-      notification.link ||
-      (notification.orderId ? `/orders/${notification.orderId}` : "");
-
-    if (!destination) {
-      return;
-    }
+    const isOfferOrPromotional =
+      notification.type === "offer" || notification.isPromotional === true;
 
     try {
+      if (isOfferOrPromotional) {
+        router.replace("/(tabs)" as any);
+        return;
+      }
+
+      const destination =
+        notification.link ||
+        (notification.orderId ? `/orders/${notification.orderId}` : "");
+
+      if (!destination) {
+        return;
+      }
+
       if (
         destination.startsWith("http://") ||
         destination.startsWith("https://")
@@ -569,10 +640,10 @@ export default function NotificationsScreen() {
     } catch (error: any) {
       console.log("MARK ALL READ ERROR:", error?.response?.data || error);
 
-      Alert.alert(
-        "Notifications",
-        error?.response?.data?.message ||
-          "Unable to mark notifications as read.",
+      showDesignedAlert(
+        "Couldn’t update notifications",
+        error?.response?.data?.message || "Unable to mark notifications as read.",
+        "error",
       );
     } finally {
       setBusyId(null);
@@ -602,9 +673,10 @@ export default function NotificationsScreen() {
       setDeleteTarget(null);
     } catch (error: any) {
       console.log("DELETE NOTIFICATION ERROR:", error?.response?.data || error);
-      Alert.alert(
-        "Notifications",
+      showDesignedAlert(
+        "Couldn’t delete notification",
         error?.response?.data?.message || "Unable to delete notification.",
+        "error",
       );
     } finally {
       setBusyId(null);
@@ -641,8 +713,29 @@ export default function NotificationsScreen() {
         setNotificationsEnabled(response.data.notificationsEnabled);
       }
 
-      setSettingsOpen(false);
+      // Persist preferences locally so they are available immediately next visit.
+      try {
+        const existingRaw = await AsyncStorage.getItem(NOTIFICATIONS_CACHE_KEY);
+        const existing = existingRaw ? JSON.parse(existingRaw) : {};
+        await AsyncStorage.setItem(
+          NOTIFICATIONS_CACHE_KEY,
+          JSON.stringify({
+            ...existing,
+            notifications: Array.isArray(existing?.notifications) ? existing.notifications : notifications,
+            notificationsEnabled:
+              typeof response?.data?.notificationsEnabled === "boolean"
+                ? response.data.notificationsEnabled
+                : existing?.notificationsEnabled ?? true,
+            settings: { ...settings, ...(returned || {}) },
+            cachedAt: new Date().toISOString(),
+          }),
+        );
+      } catch (cacheError) {
+        console.log("NOTIFICATION SETTINGS CACHE WRITE ERROR:", cacheError);
+      }
 
+      setSettingsOpen(false);
+      showDesignedAlert("Preferences saved", "Your notification preferences have been updated.", "success");
       await loadNotifications(false);
     } catch (error: any) {
       console.log(
@@ -650,10 +743,10 @@ export default function NotificationsScreen() {
         error?.response?.data || error,
       );
 
-      Alert.alert(
-        "Notification settings",
-        error?.response?.data?.message ||
-          "Unable to update notification settings.",
+      showDesignedAlert(
+        "Settings not saved",
+        error?.response?.data?.message || "Unable to update notification settings.",
+        "error",
       );
     } finally {
       setSettingsSaving(false);
@@ -808,35 +901,6 @@ export default function NotificationsScreen() {
         {/* CATEGORY-FIRST NOTIFICATION LAYOUT */}
         {/* DISABLED NOTICE */}
 
-        {!notificationsEnabled ? (
-          <View style={styles.disabledCard}>
-            <View style={styles.disabledIcon}>
-              <Ionicons
-                name="notifications-off-outline"
-                size={20}
-                color="#B45309"
-              />
-            </View>
-
-            <View style={styles.disabledText}>
-              <Text style={styles.disabledTitle}>
-                In-app notifications are off
-              </Text>
-
-              <Text style={styles.disabledMessage}>
-                Turn them on from settings to see future updates here.
-              </Text>
-            </View>
-
-            <Pressable
-              style={styles.enableButton}
-              onPress={() => setSettingsOpen(true)}
-            >
-              <Text style={styles.enableButtonText}>Enable</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
         {/* TOOLBAR */}
 
         <View style={styles.toolbar}>
@@ -924,88 +988,164 @@ export default function NotificationsScreen() {
             {sortedFilteredNotifications.map((notification, index) => {
               const meta = getNotificationMeta(notification.type);
               const isBusy = busyId === notification._id;
+              const isExpanded = expandedNotificationId === notification._id;
+              const imageUrl =
+                typeof notification.imageUrl === "string" &&
+                /^https:\/\//i.test(notification.imageUrl.trim())
+                  ? notification.imageUrl.trim()
+                  : null;
+
               return (
-                <Pressable
+                <View
                   key={notification._id || `notification-${index}`}
                   style={[
                     styles.notificationCard,
                     !notification.isRead && styles.notificationUnread,
+                    isExpanded && styles.notificationCardExpanded,
                   ]}
-                  onPress={() => handleNotificationPress(notification)}
                 >
-                  <View
-                    style={[
-                      styles.notificationIcon,
-                      { backgroundColor: meta.softColor },
-                    ]}
+                  <Pressable
+                    style={styles.notificationAccordionHeader}
+                    onPress={() =>
+                      setExpandedNotificationId((current) =>
+                        current === notification._id ? null : notification._id,
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: isExpanded }}
                   >
-                    <Ionicons
-                      name={meta.icon}
-                      size={22}
-                      color={meta.iconColor}
-                    />
-                  </View>
-                  <View style={styles.notificationBody}>
-                    <View style={styles.notificationTop}>
-                      <Text
+                    {imageUrl ? (
+                      <Image
+                        source={{ uri: imageUrl }}
+                        style={styles.notificationThumbnail}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
                         style={[
-                          styles.notificationTitle,
-                          !notification.isRead &&
-                            styles.notificationTitleUnread,
+                          styles.notificationIcon,
+                          { backgroundColor: meta.softColor },
                         ]}
-                        numberOfLines={1}
                       >
-                        {notification.title || "Notification"}
-                      </Text>
-                      <Text style={styles.timeText} numberOfLines={1}>
-                        {formatTime(notification.createdAt)}
+                        <Ionicons
+                          name={meta.icon}
+                          size={22}
+                          color={meta.iconColor}
+                        />
+                      </View>
+                    )}
+
+                    <View style={styles.notificationBody}>
+                      <View style={styles.notificationTop}>
+                        <Text
+                          style={[
+                            styles.notificationTitle,
+                            !notification.isRead &&
+                              styles.notificationTitleUnread,
+                          ]}
+                          numberOfLines={isExpanded ? 2 : 1}
+                        >
+                          {notification.title || "Notification"}
+                        </Text>
+                        <Text style={styles.timeText} numberOfLines={1}>
+                          {formatTime(notification.createdAt)}
+                        </Text>
+                      </View>
+                      <Text
+                        style={styles.notificationMessage}
+                        numberOfLines={isExpanded ? undefined : 2}
+                      >
+                        {notification.message || ""}
                       </Text>
                     </View>
-                    <Text style={styles.notificationMessage} numberOfLines={2}>
-                      {notification.message || ""}
-                    </Text>
-                    {notification.orderId ? (
-                      <View style={styles.orderLink}>
-                        <Ionicons
-                          name="receipt-outline"
-                          size={13}
+
+                    <View style={styles.notificationRight}>
+                      {isBusy ? (
+                        <ActivityIndicator
+                          size="small"
                           color={colors.primary}
                         />
-                        <Text style={styles.orderLinkText}>View order</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.notificationRight}>
-                    {isBusy ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <>
-                        {!notification.isRead ? (
-                          <View style={styles.newDot} />
-                        ) : null}
-                        <Ionicons
-                          name="chevron-forward"
-                          size={19}
-                          color="#94A3B8"
-                        />
-                        <Pressable
-                          hitSlop={8}
-                          style={styles.deleteButton}
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            handleDelete(notification);
-                          }}
-                        >
+                      ) : (
+                        <>
+                          {!notification.isRead ? (
+                            <View style={styles.newDot} />
+                          ) : null}
                           <Ionicons
-                            name="trash-outline"
-                            size={14}
-                            color="#94A3B8"
+                            name={isExpanded ? "chevron-up" : "chevron-down"}
+                            size={19}
+                            color="#64748B"
                           />
-                        </Pressable>
-                      </>
-                    )}
-                  </View>
-                </Pressable>
+                        </>
+                      )}
+                    </View>
+                  </Pressable>
+
+                  {isExpanded ? (
+                    <View style={styles.notificationAccordionContent}>
+                      {imageUrl ? (
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.notificationExpandedImage}
+                          resizeMode="cover"
+                          accessibilityLabel={`${notification.title || "Notification"} image`}
+                        />
+                      ) : null}
+                      {notification.message ? (
+                        <Text style={styles.notificationExpandedMessage}>
+                          {notification.message}
+                        </Text>
+                      ) : null}
+                      <View style={styles.notificationExpandedFooter}>
+                        <Text style={styles.notificationExpandedTime}>
+                          {notification.createdAt
+                            ? new Date(notification.createdAt).toLocaleString(
+                                "en-IN",
+                                {
+                                  day: "2-digit",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )
+                            : ""}
+                        </Text>
+                        <View style={styles.notificationExpandedActions}>
+                          <Pressable
+                            style={styles.notificationOpenButton}
+                            onPress={() =>
+                              handleNotificationPress(notification)
+                            }
+                            disabled={!!busyId}
+                          >
+                            <Text style={styles.notificationOpenButtonText}>
+                              {notification.orderId
+                                ? "View order"
+                                : "Open update"}
+                            </Text>
+                            <Ionicons
+                              name="arrow-forward"
+                              size={14}
+                              color="#FFFFFF"
+                            />
+                          </Pressable>
+                          <Pressable
+                            hitSlop={8}
+                            style={styles.deleteButton}
+                            onPress={() => handleDelete(notification)}
+                            disabled={!!busyId}
+                            accessibilityLabel="Delete notification"
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={16}
+                              color="#94A3B8"
+                            />
+                          </Pressable>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
               );
             })}
           </View>
@@ -1115,6 +1255,64 @@ export default function NotificationsScreen() {
                 )}
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* REUSABLE DESIGNED FEEDBACK ALERT */}
+      <Modal
+        visible={!!designedAlert}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setDesignedAlert(null)}
+      >
+        <View style={styles.feedbackModalRoot}>
+          <Pressable
+            style={styles.deleteModalBackdrop}
+            onPress={() => setDesignedAlert(null)}
+          />
+          <View style={styles.feedbackDialog}>
+            <View
+              style={[
+                styles.feedbackIconWrap,
+                designedAlert?.kind === "success" && styles.feedbackIconSuccess,
+                designedAlert?.kind === "info" && styles.feedbackIconInfo,
+              ]}
+            >
+              <Ionicons
+                name={
+                  designedAlert?.kind === "success"
+                    ? "checkmark-circle-outline"
+                    : designedAlert?.kind === "info"
+                      ? "information-circle-outline"
+                      : "alert-circle-outline"
+                }
+                size={30}
+                color={
+                  designedAlert?.kind === "success"
+                    ? "#16A34A"
+                    : designedAlert?.kind === "info"
+                      ? "#4F46E5"
+                      : "#E11D48"
+                }
+              />
+            </View>
+            <Text style={styles.deleteDialogTitle}>
+              {designedAlert?.title || "Notice"}
+            </Text>
+            <Text style={styles.deleteDialogMessage}>
+              {designedAlert?.message || ""}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.feedbackOkayButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => setDesignedAlert(null)}
+            >
+              <Text style={styles.feedbackOkayText}>Got it</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1688,8 +1886,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.borderLight,
-    flexDirection: "row",
-    alignItems: "center",
+    // Keep the accordion header and expanded content stacked vertically.
+    flexDirection: "column",
+    alignItems: "stretch",
     overflow: "hidden",
     shadowColor: colors.shadow,
     shadowOpacity: 0.035,
@@ -1704,6 +1903,84 @@ const styles = StyleSheet.create({
   notificationUnread: {
     borderColor: "#F1F2FB",
     backgroundColor: "#FFFFFF",
+  },
+
+  notificationCardExpanded: {
+    borderColor: "#C7D2FE",
+    backgroundColor: "#FFFFFF",
+  },
+
+  notificationAccordionHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  notificationThumbnail: {
+    width: 58,
+    height: 58,
+    borderRadius: 13,
+    backgroundColor: "#F1F5F9",
+  },
+
+  notificationAccordionContent: {
+    width: "100%",
+    alignSelf: "stretch",
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#EEF2F7",
+  },
+
+  notificationExpandedImage: {
+    width: "100%",
+    height: 250,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
+    marginBottom: 12,
+  },
+
+  notificationExpandedMessage: {
+    fontSize: 12,
+    lineHeight: 19,
+    color: colors.textSecondary,
+  },
+
+  notificationExpandedFooter: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+
+  notificationExpandedTime: {
+    flex: 1,
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+
+  notificationExpandedActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  notificationOpenButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+
+  notificationOpenButtonText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 
   unreadRail: {
@@ -1957,6 +2234,69 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginTop: 7,
+  },
+
+  feedbackModalRoot: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  feedbackDialog: {
+    width: "100%",
+    maxWidth: 380,
+    paddingHorizontal: 22,
+    paddingTop: 25,
+    paddingBottom: 20,
+    borderRadius: 28,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 16,
+  },
+
+  feedbackIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF1F2",
+    borderWidth: 1,
+    borderColor: "#FFE4E6",
+    marginBottom: 15,
+  },
+
+  feedbackIconSuccess: {
+    backgroundColor: "#F0FDF4",
+    borderColor: "#DCFCE7",
+  },
+
+  feedbackIconInfo: {
+    backgroundColor: "#EEF2FF",
+    borderColor: "#E0E7FF",
+  },
+
+  feedbackOkayButton: {
+    width: "100%",
+    minHeight: 48,
+    marginTop: 22,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+
+  feedbackOkayText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#FFFFFF",
   },
 
   deleteModalRoot: {

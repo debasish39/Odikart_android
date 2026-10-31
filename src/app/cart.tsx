@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   FlatList,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,6 +18,7 @@ import {
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
+import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useFocusEffect, useRouter } from "expo-router";
@@ -67,55 +69,15 @@ function SkeletonBlock({
 
   style?: any;
 }) {
-  const opacity = useRef(new Animated.Value(0.45)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.85,
-
-          duration: 650,
-
-          easing: Easing.inOut(Easing.ease),
-
-          useNativeDriver: true,
-        }),
-
-        Animated.timing(opacity, {
-          toValue: 0.45,
-
-          duration: 650,
-
-          easing: Easing.inOut(Easing.ease),
-
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    animation.start();
-
-    return () => {
-      animation.stop();
-    };
-  }, [opacity]);
-
   return (
-    <Animated.View
+    <View
       style={[
         styles.skeletonBlock,
-
         {
           width,
-
           height,
-
           borderRadius: radius,
-
-          opacity,
         },
-
         style,
       ]}
     />
@@ -342,6 +304,7 @@ export default function CartScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [updating, setUpdating] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   // Show the full-screen skeleton only on the first visit when no cached cart exists.
   const hasLoadedOnce = useRef(false);
   const cacheKey = useMemo(() => {
@@ -358,6 +321,9 @@ export default function CartScreen() {
       // Do not flash the skeleton every time the user returns to this screen.
       const shouldShowSkeleton = showLoader && !hasLoadedOnce.current;
       let hasCachedCart = false;
+
+      // Start the network request immediately instead of waiting for storage.
+      const cartRequest = getCart();
 
       if (shouldShowSkeleton) {
         try {
@@ -380,7 +346,7 @@ export default function CartScreen() {
       }
 
       try {
-        const cartItems = await getCart();
+        const cartItems = await cartRequest;
         const freshItems = Array.isArray(cartItems) ? cartItems : [];
         setItems(freshItems);
 
@@ -796,9 +762,15 @@ export default function CartScreen() {
             ]}
             onPress={() => router.replace("/(tabs)")}
           >
-            <Text style={styles.primaryButtonText}>Explore products</Text>
-
-            <Ionicons name="arrow-forward" size={19} color={colors.textWhite} />
+            <LinearGradient
+              colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.primaryButtonGradient}
+            >
+              <Text style={styles.primaryButtonText}>Explore products</Text>
+              <Ionicons name="arrow-forward" size={19} color={colors.textWhite} />
+            </LinearGradient>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -829,7 +801,7 @@ export default function CartScreen() {
 
         <Pressable
           style={styles.clearButton}
-          onPress={handleClearCart}
+          onPress={() => setShowClearConfirm(true)}
           disabled={!!updating}
         >
           <Ionicons name="trash-outline" size={17} color={colors.error} />
@@ -1175,11 +1147,75 @@ export default function CartScreen() {
           ]}
           onPress={() => router.push("/checkout")}
         >
-          <Text style={styles.checkoutButtonText}>Proceed to checkout</Text>
-
-          <Ionicons name="arrow-forward" size={20} color={colors.textWhite} />
+          <LinearGradient
+            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.checkoutButtonGradient}
+          >
+            <Text style={styles.checkoutButtonText}>Proceed to checkout</Text>
+            <Ionicons name="arrow-forward" size={20} color={colors.textWhite} />
+          </LinearGradient>
         </Pressable>
       </View>
+
+      <Modal
+        visible={showClearConfirm}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowClearConfirm(false)}
+      >
+        <View style={styles.clearModalBackdrop}>
+          <View style={styles.clearModalCard}>
+            <View style={styles.clearModalIconRing}>
+              <View style={styles.clearModalIcon}>
+                <Ionicons name="trash-outline" size={30} color="#DC2626" />
+              </View>
+            </View>
+
+            <Text style={styles.clearModalTitle}>Clear your cart?</Text>
+            <Text style={styles.clearModalMessage}>
+              Are you sure you want to remove all {totalItems === 1 ? "item" : `${totalItems} items`} from your cart? This action cannot be undone.
+            </Text>
+
+            <View style={styles.clearModalActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.clearCancelButton,
+                  pressed && styles.pressedLight,
+                ]}
+                onPress={() => setShowClearConfirm(false)}
+                disabled={loading}
+              >
+                <Text style={styles.clearCancelText}>Keep items</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.clearConfirmButton,
+                  pressed && styles.pressed,
+                ]}
+                onPress={async () => {
+                  setShowClearConfirm(false);
+                  await handleClearCart();
+                }}
+                disabled={loading}
+              >
+                <LinearGradient
+                  colors={["#EF4444", "#DC2626"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.clearConfirmGradient}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.clearConfirmText}>Clear cart</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1199,6 +1235,7 @@ const styles = StyleSheet.create({
 
   skeletonBlock: {
     backgroundColor: "#E5EAF2",
+    opacity: 0.82,
   },
 
   skeletonHeader: {
@@ -2269,22 +2306,9 @@ const styles = StyleSheet.create({
 
   checkoutButton: {
     flex: 1,
-
     minHeight: 52,
-
-    paddingHorizontal: 17,
-
     borderRadius: 16,
-
-    backgroundColor: colors.primary,
-
-    flexDirection: "row",
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    gap: 8,
+    overflow: "hidden",
 
     shadowColor: colors.primary,
 
@@ -2294,6 +2318,21 @@ const styles = StyleSheet.create({
 
     shadowOffset: { width: 0, height: 5 },
 
+    elevation: 4,
+  },
+
+  checkoutButtonGradient: {
+    minHeight: 52,
+    paddingHorizontal: 17,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
     elevation: 4,
   },
 
@@ -2411,22 +2450,9 @@ const styles = StyleSheet.create({
 
   primaryButton: {
     minHeight: 52,
-
     marginTop: 25,
-
-    paddingHorizontal: 22,
-
     borderRadius: 16,
-
-    backgroundColor: colors.primary,
-
-    flexDirection: "row",
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    gap: 9,
+    overflow: "hidden",
 
     shadowColor: colors.primary,
 
@@ -2439,12 +2465,140 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
+  primaryButtonGradient: {
+    minHeight: 52,
+    paddingHorizontal: 22,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+
   primaryButtonText: {
     fontSize: 14,
 
     fontWeight: "900",
 
     color: colors.textWhite,
+  },
+
+  clearModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  clearModalCard: {
+    width: "100%",
+    maxWidth: 380,
+    paddingHorizontal: 22,
+    paddingTop: 25,
+    paddingBottom: 20,
+    borderRadius: 28,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+
+  clearModalIconRing: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 17,
+    borderWidth: 1,
+    borderColor: "#FEE2E2",
+  },
+
+  clearModalIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#DC2626",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+
+  clearModalTitle: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: "#111827",
+    textAlign: "center",
+  },
+
+  clearModalMessage: {
+    marginTop: 9,
+    marginBottom: 23,
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+  },
+
+  clearModalActions: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  clearCancelButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  clearCancelText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#334155",
+  },
+
+  clearConfirmButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+
+  clearConfirmGradient: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+
+  clearConfirmText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#FFFFFF",
   },
 
   pressed: {

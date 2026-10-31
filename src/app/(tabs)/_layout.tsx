@@ -196,10 +196,10 @@ function AnimatedTabBar({
     translateY,
   ]);
 
-  const tabBarHeight =
-    Platform.OS === "ios"
-      ? 68 + insets.bottom
-      : 68;
+  // Reserve space for Android's gesture/3-button navigation area as well
+  // as iOS's home-indicator area. The white bar background extends behind
+  // the system area, while tab buttons stay safely above it.
+  const tabBarHeight = 68 + insets.bottom;
 
   return (
     <Animated.View
@@ -207,10 +207,7 @@ function AnimatedTabBar({
         styles.tabBarContainer,
         {
           height: tabBarHeight,
-          paddingBottom:
-            Platform.OS === "ios"
-              ? insets.bottom
-              : 7,
+          paddingBottom: insets.bottom,
           transform: [
             {
               translateY,
@@ -478,7 +475,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
 
     paddingHorizontal: 8,
-    paddingTop: 7,
+    paddingTop: 4,
   },
 
   tabButton: {

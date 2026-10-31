@@ -1,5 +1,12 @@
+
+
+
+
+
+
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system/legacy";
 import { LinearGradient } from "expo-linear-gradient"; // npx expo install expo-linear-gradient
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
@@ -7,9 +14,11 @@ import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
   BackHandler,
   Easing,
+  FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -19,7 +28,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -28,6 +36,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Share from "react-native-share";
 
 // Voice search needs a development build. In Expo Go (or if the package is missing) the mic button simply stays hidden.
 let SpeechModule: any = null;
@@ -226,6 +235,10 @@ type Product = {
   _id: string;
   title: string;
   brand?: string;
+  category?: any;
+  subCategory?: any;
+  createdAt?: string;
+  analytics?: { sales?: number };
   weight?: string;
   netWeight?: string;
   unit?: string;
@@ -515,6 +528,8 @@ function ShelfSkeleton() {
 
       <ScrollView
         horizontal
+        nestedScrollEnabled
+        directionalLockEnabled
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.shelfList}
       >
@@ -735,7 +750,73 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
   const out = isOutOfStock(product);
   const pop = useRef(new Animated.Value(1)).current;
   const [activeImageIndex, setActiveImageIndex] = useState(0);
-  const popHeart = () =>
+  const cardGalleryRef = useRef<ScrollView>(null);
+  const productUnit = product.weight || product.netWeight || product.unit || "";
+
+  // Reset the gallery whenever a recycled card receives another product.
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [product._id]);
+
+  // Keep the image counter in sync without causing duplicate renders.
+  const updateActiveImage = useCallback(
+    (offsetX: number) => {
+      const nextIndex = Math.max(
+        0,
+        Math.min(Math.round(offsetX / imageSize), images.length - 1),
+      );
+      setActiveImageIndex((current) =>
+        current === nextIndex ? current : nextIndex,
+      );
+    },
+    [imageSize, images.length],
+  );
+
+  const goToCardImage = useCallback(
+    (nextIndex: number) => {
+      const safeIndex = Math.max(0, Math.min(nextIndex, images.length - 1));
+      cardGalleryRef.current?.scrollTo({
+        x: safeIndex * imageSize,
+        y: 0,
+        animated: true,
+      });
+      setActiveImageIndex(safeIndex);
+    },
+    [imageSize, images.length],
+  );
+
+  const imageKeyExtractor = useCallback(
+    (_uri: string, index: number) =>
+      `${product._id}-card-image-${index}`,
+    [product._id],
+  );
+
+  const renderCardImage = useCallback(
+    ({ item: uri, index }: { item: string; index: number }) => (
+      <View
+        style={{
+          width: imageSize,
+          height: imageHeight,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Image
+          source={{ uri }}
+          style={[
+            s.cardImage,
+            { width: imageSize, height: imageHeight },
+            out && { opacity: 0.45 },
+          ]}
+          resizeMode="contain"
+          accessibilityLabel={`${product.title}, image ${index + 1}`}
+        />
+      </View>
+    ),
+    [imageSize, imageHeight, out, product.title],
+  );
+
+  const popHeart = useCallback(() => {
     Animated.sequence([
       Animated.spring(pop, {
         toValue: 1.3,
@@ -743,9 +824,13 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
         bounciness: 12,
         useNativeDriver: true,
       }),
-      Animated.spring(pop, { toValue: 1, speed: 20, useNativeDriver: true }),
+      Animated.spring(pop, {
+        toValue: 1,
+        speed: 20,
+        useNativeDriver: true,
+      }),
     ]).start();
-  const productUnit = product.weight || product.netWeight || product.unit || "";
+  }, [pop]);
 
   return (
     <Pressable
@@ -767,41 +852,64 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
       <View
         style={[s.cardImageWrap, { width: imageSize, height: imageHeight }]}
       >
-        {images.length > 0 ? (
+           {images.length > 0 ? (
           <ScrollView
+            ref={cardGalleryRef}
+            key={`${product._id}-gallery-${images.length}`}
             horizontal
             pagingEnabled
+            snapToInterval={imageSize}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            directionalLockEnabled
             nestedScrollEnabled
+            scrollEnabled={images.length > 1}
+            bounces={false}
+            overScrollMode="never"
             showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={(event) =>
+              updateActiveImage(event.nativeEvent.contentOffset.x)
+            }
+            onMomentumScrollEnd={(event) =>
+              updateActiveImage(event.nativeEvent.contentOffset.x)
+            }
+            onScrollEndDrag={(event) =>
+              updateActiveImage(event.nativeEvent.contentOffset.x)
+            }
             style={s.cardImageCarousel}
-            contentContainerStyle={{ alignItems: "center" }}
-            onMomentumScrollEnd={(event) => {
-              const nextIndex = Math.round(
-                event.nativeEvent.contentOffset.x / imageSize,
-              );
-              setActiveImageIndex(
-                Math.max(0, Math.min(nextIndex, images.length - 1)),
-              );
-            }}
           >
-            {images.map((uri, imageIndex) => (
-              <Image
-                key={`${product._id}-card-image-${imageIndex}`}
-                source={{ uri }}
-                style={[
-                  s.cardImage,
-                  { width: imageSize, height: imageHeight },
-                  out && { opacity: 0.45 },
-                ]}
-                resizeMode="contain"
-                accessibilityLabel={`${product.title}, image ${imageIndex + 1}`}
-              />
+            {images.map((uri, index) => (
+              <View
+                key={`${product._id}-card-image-${index}`}
+                style={{
+                  width: imageSize,
+                  height: imageHeight,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Image
+                  source={{ uri }}
+                  style={[
+                    s.cardImage,
+                    { width: imageSize, height: imageHeight },
+                    out && { opacity: 0.45 },
+                  ]}
+                  resizeMode="contain"
+                  accessibilityLabel={`${product.title}, image ${index + 1}`}
+                />
+              </View>
             ))}
           </ScrollView>
         ) : image ? (
           <Image
             source={{ uri: image }}
-            style={[s.cardImage, out && { opacity: 0.45 }]}
+            style={[
+              s.cardImage,
+              { width: imageSize, height: imageHeight },
+              out && { opacity: 0.45 },
+            ]}
             resizeMode="contain"
           />
         ) : (
@@ -810,14 +918,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
           </View>
         )}
 
-        {images.length > 1 ? (
-          <View style={s.imageCountBadge} pointerEvents="none">
-            <Text style={s.imageCountText}>
-              {activeImageIndex + 1}/{images.length}
-            </Text>
-          </View>
-        ) : null}
-
+      
         {discount > 0 ? (
           <View style={s.discountBadge}>
             <Text style={s.discountBadgeText}>{Math.round(discount)}% OFF</Text>
@@ -845,7 +946,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
             <Ionicons
               name={p.wished ? "heart" : "heart-outline"}
               size={19}
-              color={p.wished ? C.danger : "#7B7F9D"}
+              color={p.wished ? C.danger : "#c5392c"}
             />
           </Animated.View>
         </Pressable>
@@ -922,14 +1023,23 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
                 p.onAdd();
               }}
               accessibilityLabel={`Add ${product.title} to cart`}
-              style={({ pressed }) => [s.addBtn, pressed && { opacity: 0.82 }]}
+              style={({ pressed }) => [pressed && { opacity: 0.82 }]}
             >
-              <Ionicons name="add" size={19} color="#fff" />
-              <Text style={s.addBtnText}>ADD</Text>
+              <LinearGradient
+                colors={["#4F46E5", "#2563EB", "#9333EA"]}
+                locations={[0, 0.52, 1]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={s.addBtn}
+              >
+                <Ionicons name="add" size={19} color="#fff" />
+                <Text style={s.addBtnText}>ADD</Text>
+              </LinearGradient>
             </Pressable>
           )}
         </View>
       </View>
+
       {p.shine ? (
         <ShineLayer
           value={p.shine}
@@ -1072,6 +1182,13 @@ export default function HomeScreen() {
   const [searchPlaceholderIndex, setSearchPlaceholderIndex] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
   const [sort, setSort] = useState<SortKey>("relevance");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedSubCategory, setSelectedSubCategory] = useState("All");
+  const [selectedBrand, setSelectedBrand] = useState("All");
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
+  const [minPriceInput, setMinPriceInput] = useState("0");
+  const [maxPriceInput, setMaxPriceInput] = useState("5000");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Cycle through helpful search examples while the search field is idle.
@@ -1088,6 +1205,14 @@ export default function HomeScreen() {
     return () => clearInterval(placeholderTimer);
   }, [searchFocused, search]);
   const mainRef = useRef<ScrollView>(null);
+  const filterRowMeasureRef = useRef<View>(null);
+  // Measure the actual sticky search navbar instead of relying on a fixed 74px.
+  const [stickySearchHeight, setStickySearchHeight] = useState(80);
+  const [filterRowThreshold, setFilterRowThreshold] = useState<number | null>(
+    null,
+  );
+  const [showStickyFilters, setShowStickyFilters] = useState(false);
+  const currentScrollY = useRef(0);
   const topVisible = useRef(false);
   const [showTop, setShowTop] = useState(false);
 
@@ -1118,8 +1243,11 @@ export default function HomeScreen() {
   /* ---------- location ---------- */
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [previewImageIndex, setPreviewImageIndex] = useState(0);
+  const previewCarouselWidth = Math.max(180, Math.min(screenWidth - 84, 420));
   const [locationOpen, setLocationOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState("Select location");
+  // Prevent the denied-permission Settings alert from reopening on every Home focus.
+  const locationPermissionAlertShown = useRef(false);
   const [locationSearch, setLocationSearch] = useState("");
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -1128,43 +1256,84 @@ export default function HomeScreen() {
   const [savedLoading, setSavedLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  // Ask for location permission on launch. When permission is granted, detect
-  // the device location and use the readable area as the delivery destination.
-  // If permission is denied, keep manual location selection available.
-  const locationPermissionPrompted = useRef(false);
-  useEffect(() => {
-    let cancelled = false;
+  // Re-check delivery location whenever Home becomes focused.
+  // If the header still has no location, retry GPS instead of attempting it only once
+  // at app launch. A manually selected/saved location is never overwritten.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    const initializeDeliveryLocation = async () => {
-      if (locationPermissionPrompted.current) return;
-      locationPermissionPrompted.current = true;
+      const ensureDeliveryLocation = async () => {
+        if (selectedLocation !== "Select location") return;
 
-      try {
-        let permission = await Location.getForegroundPermissionsAsync();
-        if (cancelled) return;
+        try {
+          const permission = await Location.getForegroundPermissionsAsync();
+          if (cancelled) return;
 
-        if (permission.status === Location.PermissionStatus.UNDETERMINED) {
-          permission = await Location.requestForegroundPermissionsAsync();
+          if (permission.status === Location.PermissionStatus.GRANTED) {
+            locationPermissionAlertShown.current = false;
+            // Permission is already granted (including an active "Only this time"
+            // grant). Resolve the delivery location without showing another prompt.
+            requestAnimationFrame(() => {
+              if (!cancelled) void useCurrentLocation();
+            });
+            return;
+          }
+
+          // If the shopper chose Android's "Only this time", that grant can expire
+          // after the app is closed. Ask again on the next app entry whenever Android
+          // still allows the permission request. Do not send these users to Settings.
+          if (
+            permission.canAskAgain ||
+            permission.status === Location.PermissionStatus.UNDETERMINED
+          ) {
+            locationPermissionAlertShown.current = false;
+            const requested =
+              await Location.requestForegroundPermissionsAsync();
+            if (cancelled) return;
+
+            if (requested.status === Location.PermissionStatus.GRANTED) {
+              requestAnimationFrame(() => {
+                if (!cancelled) void useCurrentLocation();
+              });
+            }
+            // If denied, wait until the next app entry to ask again. Android may
+            // suppress the native dialog after repeated denials; canAskAgain then
+            // becomes false and the Settings explanation below is used.
+            return;
+          }
+
+          // Only show Settings guidance when Android no longer allows a permission
+          // prompt (for example, after the user has denied it permanently).
+          if (locationPermissionAlertShown.current) return;
+          locationPermissionAlertShown.current = true;
+          Alert.alert(
+            "Turn on location",
+            "Your delivery location isn't showing. Allow OdiKart to access your location so we can detect your delivery area.",
+            [
+              { text: "Not now", style: "cancel" },
+              {
+                text: "Open Settings",
+                onPress: () => {
+                  void Linking.openSettings().catch((error) =>
+                    console.log("OPEN LOCATION SETTINGS ERROR:", error),
+                  );
+                },
+              },
+            ],
+            { cancelable: true },
+          );
+        } catch (error) {
+          console.log("LOCATION PERMISSION / INITIAL LOCATION ERROR:", error);
         }
+      };
 
-        if (cancelled) return;
-
-        if (permission.status === Location.PermissionStatus.GRANTED) {
-          // Let the screen finish mounting before starting GPS/reverse geocoding.
-          requestAnimationFrame(() => {
-            if (!cancelled) void useCurrentLocation();
-          });
-        }
-      } catch (error) {
-        console.log("LOCATION PERMISSION / INITIAL LOCATION ERROR:", error);
-      }
-    };
-
-    void initializeDeliveryLocation();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      void ensureDeliveryLocation();
+      return () => {
+        cancelled = true;
+      };
+    }, [selectedLocation]),
+  );
 
   /* ---------- cart + wishlist ---------- */
   const [cartItems, setCartItems] = useState<any[]>([]);
@@ -1283,6 +1452,18 @@ export default function HomeScreen() {
   const onScroll = (e: any) => {
     const y = Math.max(0, e.nativeEvent.contentOffset.y);
     const diff = y - lastY.current;
+    currentScrollY.current = y;
+    const passedFilterRow =
+      filterRowThreshold !== null && y >= filterRowThreshold;
+    // Reveal the filter rail only when the shopper scrolls back upward.
+    // While scrolling down, keep the product cards unobstructed. Once the
+    // original filter row has crossed the search bar, it can reappear on up-scroll.
+    setShowStickyFilters((visible) => {
+      if (y <= 20 || !passedFilterRow) return false;
+      if (diff < -2) return true;
+      if (diff > 2) return false;
+      return visible;
+    });
 
     // Show the floating Back to top control only when the user scrolls
     // upward while already well down the page. Hide it when scrolling down
@@ -1917,7 +2098,7 @@ export default function HomeScreen() {
   const cartQuantitiesRef = useRef<Record<string, number>>({});
   const mutateProductCart = (p: Product, delta: 1 | -1) => {
     if (!isAuthenticated) {
-      router.push("/login-modal" as any);
+      showToast("Log in to use your cart.", "error");
       return;
     }
     if (isOutOfStock(p) && delta > 0) {
@@ -2013,7 +2194,6 @@ export default function HomeScreen() {
         // Roll back from the authoritative server state only on failure.
         cartQuantitiesRef.current[key] = renderedQuantity;
         try {
-          await syncCart();
         } catch {}
         const status = e?.response?.status;
         showToast(
@@ -2043,12 +2223,6 @@ export default function HomeScreen() {
   // block heart taps on every other product.
   const wishBusyIds = useRef<Set<string>>(new Set());
   const handleWishlist = async (productId: string) => {
-    // Open the login modal instead of calling wishlist APIs for signed-out users.
-    if (!isAuthenticated) {
-      router.push("/login-modal" as any);
-      return;
-    }
-
     const id = String(productId);
     if (!id || wishBusyIds.current.has(id)) return;
     const wasWished = wishlistIds.includes(id);
@@ -2211,29 +2385,20 @@ export default function HomeScreen() {
       wished={wishlistIds.includes(String(item._id))}
       wishBusy={wishBusyId === String(item._id)}
       onOpen={() => {
-        const productId = String(item._id ?? "").trim();
-
-        if (!productId || productId === "undefined" || productId === "null") {
-          showToast("Product details are unavailable.", "error");
-          return;
-        }
-
-        void trackProductEvent(productId, "view").catch((error: any) => {
-          console.log("PRODUCT VIEW TRACKING ERROR:", error?.message || error);
-        });
-
-        void addRecentlyViewedProduct(productId).catch((error: any) => {
+        const productId = String(item._id);
+        void trackProductEvent(productId, "view").catch((e: any) =>
+          console.log(
+            "PRODUCT VIEW TRACKING ERROR:",
+            e?.response?.status ?? e?.message,
+          ),
+        );
+        void addRecentlyViewedProduct(productId).catch((e: any) =>
           console.log(
             "RECENTLY VIEWED TRACKING ERROR:",
-            error?.message || error,
-          );
-        });
-
-        // Product details are public; authentication is not required here.
-        router.push({
-          pathname: "/product/[id]",
-          params: { id: productId },
-        });
+            e?.response?.status ?? e?.message,
+          ),
+        );
+        router.push({ pathname: "/products/[id]", params: { id: productId } });
       }}
       onLongPress={() => {
         setPreviewImageIndex(0);
@@ -2257,13 +2422,23 @@ export default function HomeScreen() {
           subtitle={subtitle}
           onSeeAll={() => router.push("/(tabs)/categories")}
         />
-        <ScrollView
+        <FlatList
           horizontal
+          data={items}
+          keyExtractor={(item) => String(item._id)}
+          renderItem={({ item, index }) =>
+            renderCard(item, SHELF_CARD_W, index)
+          }
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={s.shelfList}
-        >
-          {items.map((p, i) => renderCard(p, SHELF_CARD_W, i))}
-        </ScrollView>
+          nestedScrollEnabled
+          directionalLockEnabled
+          initialNumToRender={3}
+          maxToRenderPerBatch={4}
+          windowSize={3}
+          updateCellsBatchingPeriod={30}
+          removeClippedSubviews={false}
+        />
       </View>
     );
   };
@@ -2338,7 +2513,58 @@ export default function HomeScreen() {
   const searchActive = search.trim().length > 0;
   const suggestionsOpen = searchFocused && !searchActive;
   const contentLoading = searching && !searchActive && products.length === 0;
-  const sortedResults = sortProducts(products, sort);
+  const getRefId = (value: any): string =>
+    value && typeof value === "object"
+      ? String(value._id || "")
+      : String(value || "");
+  const getRefName = (value: any): string =>
+    value && typeof value === "object"
+      ? String(value.name || "")
+      : String(value || "");
+  const uniqueBrands = Array.from(
+    new Set(products.map((p) => String(p.brand || "").trim()).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+  const uniqueSubCategories = Array.from(
+    new Map(
+      products
+        .filter(
+          (p) =>
+            selectedCategory === "All" ||
+            getRefId(p.category) === selectedCategory,
+        )
+        .filter((p) => p.subCategory)
+        .map((p) => [
+          getRefId(p.subCategory),
+          {
+            id: getRefId(p.subCategory),
+            name: getRefName(p.subCategory) || "Subcategory",
+          },
+        ])
+        .filter(([id]) => Boolean(id)) as any,
+    ).values(),
+  );
+  const activeFilterCount =
+    (selectedCategory !== "All" ? 1 : 0) +
+    (selectedSubCategory !== "All" ? 1 : 0) +
+    (selectedBrand !== "All" ? 1 : 0) +
+    (priceRange[0] !== 0 || priceRange[1] !== 5000 ? 1 : 0);
+  const filteredResults = products.filter((p) => {
+    if (selectedCategory !== "All" && getRefId(p.category) !== selectedCategory)
+      return false;
+    if (
+      selectedSubCategory !== "All" &&
+      getRefId(p.subCategory) !== selectedSubCategory
+    )
+      return false;
+    if (
+      selectedBrand !== "All" &&
+      String(p.brand || "").toLowerCase() !== selectedBrand.toLowerCase()
+    )
+      return false;
+    const price = productPrice(p);
+    return price >= priceRange[0] && price <= priceRange[1];
+  });
+  const sortedResults = sortProducts(filteredResults, sort);
   const locationLabel =
     selectedLocation === "Select location"
       ? "Choose delivery location"
@@ -2421,7 +2647,23 @@ export default function HomeScreen() {
               </View>
             </View>
           </Pressable>
-
+          {/* Wishlist shortcut with live saved-item count */}
+          <Pressable
+            style={s.wishlistHeaderBtn}
+            onPress={() => router.push("/wishlist")}
+            accessibilityRole="button"
+            accessibilityLabel={`Open wishlist${wishlistIds.length ? `, ${wishlistIds.length} items` : ""}`}
+            hitSlop={8}
+          >
+            <Ionicons name="heart-outline" size={23} color="#FFFFFF" />
+            {wishlistIds.length > 0 ? (
+              <View style={s.wishlistCountBadge}>
+                <Text style={s.wishlistCountText}>
+                  {wishlistIds.length > 99 ? "99+" : wishlistIds.length}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
           <Pressable
             style={s.bellBtn}
             onPress={() => router.push("/notifications")}
@@ -2440,7 +2682,17 @@ export default function HomeScreen() {
         </View>
 
         {/* [1] Search — natively sticky, one input only */}
-        <View style={s.searchWrap}>
+        <View
+          style={s.searchWrap}
+          onLayout={(event) => {
+            const measuredHeight = Math.round(event.nativeEvent.layout.height);
+            if (measuredHeight > 0) {
+              setStickySearchHeight((current) =>
+                current === measuredHeight ? current : measuredHeight,
+              );
+            }
+          }}
+        >
           <View style={s.searchBox}>
             {searchFocused || searchActive ? (
               <Pressable
@@ -2580,7 +2832,10 @@ export default function HomeScreen() {
                 {SORTS.map((o) => (
                   <Pressable
                     key={o.key}
-                    onPress={() => setSort(o.key)}
+                    onPress={() => {
+                      setSort(o.key);
+                      setVisibleCount(PAGE_SIZE);
+                    }}
                     style={[s.sortChip, sort === o.key && s.sortChipActive]}
                     accessibilityRole="button"
                     accessibilityState={{ selected: sort === o.key }}
@@ -2694,14 +2949,20 @@ export default function HomeScreen() {
                           <Text style={s.bannerTitle}>{b.title}</Text>
                           <Text style={s.bannerSub}>{b.sub}</Text>
                           <Text style={s.bannerTagline}>{b.tagline}</Text>
-                          <View style={s.bannerBtn}>
+                          <LinearGradient
+                            colors={["#4F46E5", "#2563EB", "#9333EA"]}
+                            locations={[0, 0.52, 1]}
+                            start={{ x: 0, y: 0.5 }}
+                            end={{ x: 1, y: 0.5 }}
+                            style={s.bannerBtn}
+                          >
                             <Text style={s.bannerBtnText}>{b.cta}</Text>
                             <Ionicons
                               name="arrow-forward"
                               size={15}
                               color="#fff"
                             />
-                          </View>
+                          </LinearGradient>
                         </View>
                         {shineOn ? (
                           <ShineLayer
@@ -2901,16 +3162,155 @@ export default function HomeScreen() {
                   <View style={s.shelf}>
                     <SectionHeader
                       title="All products"
-                      subtitle={`${products.length} available`}
+                      subtitle={`${sortedResults.length} available`}
                     />
-                    {products.length > 0 ? (
+
+                    {/* All filters and sorting controls stay in one horizontal row. */}
+                    <View
+                      ref={filterRowMeasureRef}
+                      onLayout={() => {
+                        requestAnimationFrame(() => {
+                          filterRowMeasureRef.current?.measureInWindow(
+                            (_x, rowY) => {
+                              mainRef.current?.measureInWindow(
+                                (_sx, scrollWindowY) => {
+                                  // Start pinning the filter rail as soon as its
+                                  // top reaches the bottom edge of the sticky search bar.
+                                  // Without subtracting the search-bar height here,
+                                  // the rail appears late and the first product row
+                                  // gets partially covered before the overlay mounts.
+                                  setFilterRowThreshold(
+                                    Math.max(
+                                      0,
+                                      rowY -
+                                        scrollWindowY +
+                                        currentScrollY.current -
+                                        stickySearchHeight,
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        });
+                      }}
+                    >
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={[
+                          s.sortRow,
+                          { alignItems: "center" },
+                        ]}
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={[
+                            s.sortChip,
+                            s.filterTrigger,
+                            activeFilterCount > 0 && s.sortChipActive,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Open all product filters"
+                        >
+                          <Ionicons
+                            name="options-outline"
+                            size={16}
+                            color={activeFilterCount > 0 ? "#fff" : C.brand}
+                          />
+                          <Text
+                            style={[
+                              s.sortChipText,
+                              activeFilterCount > 0 && s.sortChipTextActive,
+                            ]}
+                          >
+                            Filters
+                            {activeFilterCount ? ` · ${activeFilterCount}` : ""}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={s.sortChip}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons
+                            name="grid-outline"
+                            size={15}
+                            color={C.brand}
+                          />
+                          <Text style={s.sortChipText}>
+                            {selectedCategory !== "All"
+                              ? categories.find(
+                                  (c) => c._id === selectedCategory,
+                                )?.name || "Category"
+                              : "Category"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={s.sortChip}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons
+                            name="layers-outline"
+                            size={15}
+                            color={C.brand}
+                          />
+                          <Text style={s.sortChipText}>Subcategory</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={s.sortChip}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons
+                            name="pricetag-outline"
+                            size={15}
+                            color={C.brand}
+                          />
+                          <Text style={s.sortChipText}>
+                            {selectedBrand !== "All" ? selectedBrand : "Brand"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={s.sortChip}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons
+                            name="cash-outline"
+                            size={15}
+                            color={C.brand}
+                          />
+                          <Text style={s.sortChipText}>Price</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setFilterOpen(true)}
+                          style={s.sortChip}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons
+                            name="swap-vertical-outline"
+                            size={15}
+                            color={C.brand}
+                          />
+                          <Text style={s.sortChipText}>
+                            {SORTS.find((item) => item.key === sort)?.label ||
+                              "Sort"}
+                          </Text>
+                        </Pressable>
+                      </ScrollView>
+                    </View>
+
+                    {sortedResults.length > 0 ? (
                       <>
                         <View style={s.grid}>
-                          {products
+                          {sortedResults
                             .slice(0, visibleCount)
                             .map((p, i) => renderCard(p, gridCardW, i))}
                         </View>
-                        {products.length > visibleCount ? (
+                        {sortedResults.length > visibleCount ? (
                           <Pressable
                             style={s.moreBtn}
                             onPress={() =>
@@ -3437,7 +3837,10 @@ export default function HomeScreen() {
                   })
                 : null}
               <Pressable
-                style={[s.micBig, listening && s.micBigActive]}
+                style={({ pressed }) => [
+                  s.micBig,
+                  pressed && { opacity: 0.86, transform: [{ scale: 0.96 }] },
+                ]}
                 onPress={
                   listening ? stopVoice : () => beginListening(voiceLang)
                 }
@@ -3446,11 +3849,19 @@ export default function HomeScreen() {
                   listening ? "Stop listening" : "Start listening"
                 }
               >
-                <Ionicons
-                  name={listening ? "stop" : "mic"}
-                  size={32}
-                  color="#fff"
-                />
+                <LinearGradient
+                  colors={["#4F46E5", "#2563EB", "#9333EA"]}
+                  locations={[0, 0.52, 1]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={s.micGradient}
+                >
+                  <Ionicons
+                    name={listening ? "stop" : "mic"}
+                    size={32}
+                    color="#fff"
+                  />
+                </LinearGradient>
               </Pressable>
             </View>
 
@@ -3516,78 +3927,96 @@ export default function HomeScreen() {
                 <Ionicons name="close" size={20} color={C.ink} />
               </Pressable>
               {(() => {
-                const previewImages = productImages(previewProduct);
-                const previewWidth = Math.max(
-                  0,
-                  Math.min(screenWidth - 84, 432),
-                );
-                return previewImages.length > 0 ? (
-                  <View>
-                    <ScrollView
-                      horizontal
-                      pagingEnabled
-                      nestedScrollEnabled
-                      showsHorizontalScrollIndicator={false}
-                      style={{ width: previewWidth }}
-                      onMomentumScrollEnd={(event) => {
-                        const nextIndex = Math.round(
-                          event.nativeEvent.contentOffset.x / previewWidth,
-                        );
-                        setPreviewImageIndex(
-                          Math.max(
-                            0,
-                            Math.min(nextIndex, previewImages.length - 1),
-                          ),
-                        );
-                      }}
-                    >
-                      {previewImages.map((uri, index) => (
-                        <Image
-                          key={`${previewProduct._id}-preview-${index}`}
-                          source={{ uri }}
-                          style={[
-                            s.productPreviewImage,
-                            { width: previewWidth, height: previewWidth },
-                          ]}
-                          resizeMode="contain"
-                          accessibilityLabel={`${previewProduct.title}, image ${index + 1} of ${previewImages.length}`}
-                        />
-                      ))}
-                    </ScrollView>
-                    {previewImages.length > 1 ? (
-                      <View style={s.previewCarouselFooter}>
-                        <Text style={s.previewImageCount}>
-                          {previewImageIndex + 1} / {previewImages.length}
-                        </Text>
-                        <View style={s.previewDots}>
-                          {previewImages.map((_, index) => (
+                const images = productImages(previewProduct);
+                return (
+                  <View style={s.productPreviewGallery}>
+                    {images.length > 0 ? (
+                      <>
+                        <ScrollView
+                          horizontal
+                          pagingEnabled
+                          nestedScrollEnabled
+                          showsHorizontalScrollIndicator={false}
+                          style={{ width: previewCarouselWidth }}
+                          contentContainerStyle={{ alignItems: "center" }}
+                          onMomentumScrollEnd={(event) => {
+                            const nextIndex = Math.round(
+                              event.nativeEvent.contentOffset.x /
+                                previewCarouselWidth,
+                            );
+                            setPreviewImageIndex(
+                              Math.max(
+                                0,
+                                Math.min(nextIndex, images.length - 1),
+                              ),
+                            );
+                          }}
+                          key={previewProduct._id}
+                        >
+                          {images.map((uri, index) => (
                             <View
-                              key={`preview-dot-${index}`}
+                              key={`${previewProduct._id}-preview-image-${index}`}
                               style={[
-                                s.previewDot,
-                                index === previewImageIndex &&
-                                  s.previewDotActive,
+                                s.productPreviewImageSlide,
+                                { width: previewCarouselWidth },
                               ]}
-                            />
+                            >
+                              <Image
+                                source={{ uri }}
+                                style={[
+                                  s.productPreviewImage,
+                                  {
+                                    width: previewCarouselWidth,
+                                    height: previewCarouselWidth,
+                                  },
+                                ]}
+                                resizeMode="contain"
+                                accessibilityLabel={`${previewProduct.title}, image ${index + 1} of ${images.length}`}
+                              />
+                            </View>
                           ))}
-                        </View>
-                        <Text style={s.previewSwipeHint}>Swipe images</Text>
+                        </ScrollView>
+                        {images.length > 1 ? (
+                          <View style={s.productPreviewGalleryFooter}>
+                            <View style={s.productPreviewDots}>
+                              {images.map((_, index) => (
+                                <View
+                                  key={`preview-dot-${index}`}
+                                  style={[
+                                    s.productPreviewDot,
+                                    index === previewImageIndex &&
+                                      s.productPreviewDotActive,
+                                  ]}
+                                />
+                              ))}
+                            </View>
+                            <View style={s.productPreviewImageCount}>
+                              <Text style={s.productPreviewImageCountText}>
+                                {Math.min(previewImageIndex + 1, images.length)}{" "}
+                                / {images.length}
+                              </Text>
+                            </View>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : (
+                      <View
+                        style={[
+                          s.productPreviewImage,
+                          s.cardImagePlaceholder,
+                          {
+                            width: previewCarouselWidth,
+                            height: previewCarouselWidth,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="image-outline"
+                          size={42}
+                          color={C.inkMuted}
+                        />
                       </View>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      s.productPreviewImage,
-                      { width: previewWidth, height: previewWidth },
-                      s.cardImagePlaceholder,
-                    ]}
-                  >
-                    <Ionicons
-                      name="image-outline"
-                      size={42}
-                      color={C.inkMuted}
-                    />
+                    )}
                   </View>
                 );
               })()}
@@ -3602,20 +4031,410 @@ export default function HomeScreen() {
             accessibilityLabel="Share product"
             onPress={async () => {
               if (!previewProduct) return;
+
+              const product = previewProduct;
+              const productUrl = `https://odikart.in/products/${product._id}`;
+              const shareMessage = `${product.title} — available on Odikart\n${productUrl}`;
+              const imageUrl = productImage(product);
+
               try {
-                await Share.share({
-                  title: previewProduct.title,
-                  message: `${previewProduct.title} — available on Odikart\\nhttps://odikart.in/product/${previewProduct._id}`,
-                  url: `https://odikart.in/product/${previewProduct._id}`,
+                // Download remote image first: Android share targets generally need
+                // a local file URI to attach the actual image to the share sheet.
+                if (imageUrl && FileSystem.cacheDirectory) {
+                  const extension = imageUrl
+                    .split("?")[0]
+                    .toLowerCase()
+                    .endsWith(".png")
+                    ? "png"
+                    : imageUrl.split("?")[0].toLowerCase().endsWith(".webp")
+                      ? "webp"
+                      : "jpg";
+                  const localPath = `${FileSystem.cacheDirectory}odikart-share-${product._id}.${extension}`;
+                  let localUri = localPath;
+
+                  const info = await FileSystem.getInfoAsync(localPath);
+                  if (!info.exists) {
+                    const download = await FileSystem.downloadAsync(
+                      imageUrl,
+                      localPath,
+                    );
+                    localUri = download.uri;
+                  }
+
+                  await Share.open({
+                    title: product.title,
+                    subject: `${product.title} on Odikart`,
+                    message: shareMessage,
+                    url: localUri,
+                    type:
+                      extension === "png"
+                        ? "image/png"
+                        : extension === "webp"
+                          ? "image/webp"
+                          : "image/jpeg",
+                    failOnCancel: false,
+                    useInternalStorage: true,
+                  });
+                  return;
+                }
+
+                // If no image is available, still allow the user to share the product link.
+                await Share.open({
+                  title: product.title,
+                  subject: `${product.title} on Odikart`,
+                  message: shareMessage,
+                  failOnCancel: false,
                 });
-              } catch (error) {
+              } catch (error: any) {
+                // Canceling the share sheet is normal and should not show an error.
+                if (
+                  String(error?.message ?? "")
+                    .toLowerCase()
+                    .includes("cancel")
+                )
+                  return;
                 console.log("PRODUCT SHARE ERROR:", error);
-                showToast("Couldn't share this product.", "error");
+                showToast(
+                  "Couldn't share the product image. Please try again.",
+                  "error",
+                );
               }
             }}
           >
-            <Ionicons name="share-outline" size={27} color="#6747b1" />
+            <Ionicons name="share-outline" size={27} color="#2933f1" />
           </Pressable>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={filterOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFilterOpen(false)}
+        statusBarTranslucent
+      >
+        <View style={s.filterOverlay}>
+          <Pressable
+            style={s.filterBackdrop}
+            onPress={() => setFilterOpen(false)}
+          />
+          <View style={s.filterSheet}>
+            <View style={s.filterHandle} />
+            <LinearGradient
+              colors={[C.surface, "#F5F4FF"]}
+              style={s.filterHeader}
+            >
+              <View style={s.filterHeaderIcon}>
+                <Ionicons name="options" size={20} color={C.brand} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.filterTitle}>Find your perfect pick</Text>
+                <Text style={s.filterSubtitle}>
+                  Refine products with a few taps
+                </Text>
+                <View style={s.filterHeaderMeta}>
+                  <View style={s.filterMetaDot} />
+                  <Text style={s.filterMetaText}>
+                    {activeFilterCount
+                      ? `${activeFilterCount} filter${activeFilterCount > 1 ? "s" : ""} selected`
+                      : "Personalise your results"}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => setFilterOpen(false)}
+                style={s.filterClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close filters"
+              >
+                <Ionicons name="close" size={21} color={C.ink} />
+              </Pressable>
+            </LinearGradient>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={s.filterBody}
+            >
+              <View style={s.filterSectionCard}>
+                <View style={s.filterSectionHeading}>
+                  <View style={s.filterSectionIcon}>
+                    <Ionicons name="grid-outline" size={16} color={C.brand} />
+                  </View>
+                  <Text style={s.filterSectionTitle}>CATEGORY</Text>
+                </View>
+                <View style={s.filterChipWrap}>
+                  {[{ _id: "All", name: "All categories" }, ...categories].map(
+                    (item: any) => (
+                      <Pressable
+                        key={`filter-category-${item._id}`}
+                        onPress={() => {
+                          setSelectedCategory(String(item._id));
+                          setSelectedSubCategory("All");
+                        }}
+                        style={[
+                          s.filterOption,
+                          selectedCategory === String(item._id) &&
+                            s.filterOptionActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            s.filterOptionText,
+                            selectedCategory === String(item._id) &&
+                              s.filterOptionTextActive,
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                      </Pressable>
+                    ),
+                  )}
+                </View>
+              </View>
+
+              <View style={s.filterSectionCard}>
+                <View style={s.filterSectionHeading}>
+                  <View style={s.filterSectionIcon}>
+                    <Ionicons name="layers-outline" size={16} color={C.brand} />
+                  </View>
+                  <Text style={s.filterSectionTitle}>SUBCATEGORY</Text>
+                </View>
+                <View style={s.filterChipWrap}>
+                  {[
+                    { id: "All", name: "All subcategories" },
+                    ...uniqueSubCategories,
+                  ].map((item: any) => (
+                    <Pressable
+                      key={`filter-subcategory-${item.id}`}
+                      onPress={() => setSelectedSubCategory(String(item.id))}
+                      style={[
+                        s.filterOption,
+                        selectedSubCategory === String(item.id) &&
+                          s.filterOptionActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.filterOptionText,
+                          selectedSubCategory === String(item.id) &&
+                            s.filterOptionTextActive,
+                        ]}
+                      >
+                        {item.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {uniqueSubCategories.length === 0 ? (
+                    <Text style={s.filterMuted}>
+                      No subcategories found in loaded products.
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={s.filterSectionCard}>
+                <View style={s.filterSectionHeading}>
+                  <View style={s.filterSectionIcon}>
+                    <Ionicons
+                      name="pricetag-outline"
+                      size={16}
+                      color={C.brand}
+                    />
+                  </View>
+                  <Text style={s.filterSectionTitle}>BRAND</Text>
+                </View>
+                <View style={s.filterChipWrap}>
+                  {["All", ...uniqueBrands].map((item) => (
+                    <Pressable
+                      key={`filter-brand-${item}`}
+                      onPress={() => setSelectedBrand(item)}
+                      style={[
+                        s.filterOption,
+                        selectedBrand === item && s.filterOptionActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.filterOptionText,
+                          selectedBrand === item && s.filterOptionTextActive,
+                        ]}
+                      >
+                        {item === "All" ? "All brands" : item}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={s.filterSectionCard}>
+                <View style={s.filterSectionHeading}>
+                  <View style={s.filterSectionIcon}>
+                    <Ionicons name="cash-outline" size={16} color={C.brand} />
+                  </View>
+                  <Text style={s.filterSectionTitle}>PRICE RANGE</Text>
+                </View>
+                <Text style={s.filterPriceHeadline}>
+                  {money(priceRange[0])} — {money(priceRange[1])}
+                  {priceRange[1] >= 5000 ? "+" : ""}
+                </Text>
+                <View style={s.filterPriceInputs}>
+                  <View style={s.filterPriceField}>
+                    <Text style={s.filterFieldLabel}>MINIMUM (₹)</Text>
+                    <TextInput
+                      value={minPriceInput}
+                      onChangeText={(v) => {
+                        setMinPriceInput(v.replace(/[^0-9]/g, ""));
+                        const n = Number(v.replace(/[^0-9]/g, ""));
+                        if (Number.isFinite(n) && n <= priceRange[1])
+                          setPriceRange([n, priceRange[1]]);
+                      }}
+                      keyboardType="number-pad"
+                      style={s.filterPriceInput}
+                      placeholder="0"
+                    />
+                  </View>
+                  <View style={s.filterPriceField}>
+                    <Text style={s.filterFieldLabel}>MAXIMUM (₹)</Text>
+                    <TextInput
+                      value={maxPriceInput}
+                      onChangeText={(v) => {
+                        setMaxPriceInput(v.replace(/[^0-9]/g, ""));
+                        const n = Number(v.replace(/[^0-9]/g, ""));
+                        if (Number.isFinite(n) && n >= priceRange[0])
+                          setPriceRange([priceRange[0], n]);
+                      }}
+                      keyboardType="number-pad"
+                      style={s.filterPriceInput}
+                      placeholder="5000"
+                    />
+                  </View>
+                </View>
+                <View style={s.filterChipWrap}>
+                  {[
+                    {
+                      label: "Under ₹500",
+                      range: [0, 500] as [number, number],
+                    },
+                    {
+                      label: "₹500–₹1,000",
+                      range: [500, 1000] as [number, number],
+                    },
+                    {
+                      label: "₹1,000–₹2,500",
+                      range: [1000, 2500] as [number, number],
+                    },
+                    {
+                      label: "₹2,500+",
+                      range: [2500, 5000] as [number, number],
+                    },
+                    {
+                      label: "Any price",
+                      range: [0, 5000] as [number, number],
+                    },
+                  ].map((preset) => (
+                    <Pressable
+                      key={preset.label}
+                      onPress={() => {
+                        setPriceRange(preset.range);
+                        setMinPriceInput(String(preset.range[0]));
+                        setMaxPriceInput(String(preset.range[1]));
+                      }}
+                      style={[
+                        s.filterOption,
+                        priceRange[0] === preset.range[0] &&
+                          priceRange[1] === preset.range[1] &&
+                          s.filterOptionActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.filterOptionText,
+                          priceRange[0] === preset.range[0] &&
+                            priceRange[1] === preset.range[1] &&
+                            s.filterOptionTextActive,
+                        ]}
+                      >
+                        {preset.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <View style={s.filterSectionCard}>
+                <View style={s.filterSectionHeading}>
+                  <View style={s.filterSectionIcon}>
+                    <Ionicons
+                      name="swap-vertical-outline"
+                      size={16}
+                      color={C.brand}
+                    />
+                  </View>
+                  <Text style={s.filterSectionTitle}>SORT BY</Text>
+                </View>
+                <View style={s.filterSortList}>
+                  {SORTS.map((option) => (
+                    <Pressable
+                      key={`filter-sort-${option.key}`}
+                      onPress={() => setSort(option.key)}
+                      style={[
+                        s.filterSortOption,
+                        sort === option.key && s.filterOptionActive,
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            s.filterOptionText,
+                            sort === option.key && s.filterOptionTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={
+                          sort === option.key
+                            ? "radio-button-on"
+                            : "radio-button-off"
+                        }
+                        size={19}
+                        color={sort === option.key ? "#fff" : C.inkSoft}
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+            <View style={s.filterFooter}>
+              <Pressable
+                style={s.filterResetButton}
+                onPress={() => {
+                  setSelectedCategory("All");
+                  setSelectedSubCategory("All");
+                  setSelectedBrand("All");
+                  setPriceRange([0, 5000]);
+                  setMinPriceInput("0");
+                  setMaxPriceInput("5000");
+                  setSort("relevance");
+                  setVisibleCount(PAGE_SIZE);
+                }}
+              >
+                <Text style={s.filterResetText}>Reset all</Text>
+              </Pressable>
+              <Pressable
+                style={s.filterApplyButton}
+                onPress={() => {
+                  setVisibleCount(PAGE_SIZE);
+                  setFilterOpen(false);
+                }}
+              >
+                <Text style={s.filterApplyText}>
+                  Show {sortedResults.length} products
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -3703,7 +4522,7 @@ const s = StyleSheet.create({
     height: 18,
     paddingHorizontal: 4,
     borderRadius: 9,
-    backgroundColor: "#EF4444",
+    backgroundColor: "#dc1d1d",
     borderWidth: 1.5,
     borderColor: C.brand,
     alignItems: "center",
@@ -3992,7 +4811,7 @@ const s = StyleSheet.create({
     height: 36,
     paddingHorizontal: 16,
     borderRadius: 18,
-    backgroundColor: "#5B4BFF",
+    overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -4020,6 +4839,56 @@ const s = StyleSheet.create({
   },
   cardImageCarousel: { width: "100%", height: "100%" },
   cardImage: { width: "100%", height: "100%" },
+  cardCarouselArrow: {
+    position: "absolute",
+    top: "42%",
+    zIndex: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(30,30,60,0.08)",
+    elevation: 3,
+  },
+  cardCarouselArrowLeft: { left: 5 },
+  cardCarouselArrowRight: { right: 5 },
+  cardCarouselDots: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    zIndex: 1,
+  },
+  cardCarouselDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(40,40,60,0.22)",
+    borderWidth: 0.5,
+    borderColor: "rgba(255,255,255,0.9)",
+  },
+  cardCarouselDotActive: {
+    width: 14,
+    backgroundColor: C.brand,
+    borderColor: "#FFFFFF",
+  },
+  cardCarouselMore: {
+    color: C.inkSoft,
+    fontSize: 8,
+    fontWeight: "800",
+    marginLeft: 1,
+    backgroundColor: "rgba(255,255,255,0.8)",
+    overflow: "hidden",
+    paddingHorizontal: 3,
+    borderRadius: 5,
+  },
   cardImagePlaceholder: {
     flex: 1,
     alignItems: "center",
@@ -4113,7 +4982,7 @@ const s = StyleSheet.create({
     height: 35,
     paddingHorizontal: 8,
     borderRadius: 10,
-    backgroundColor: C.brand,
+    overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -4209,16 +5078,22 @@ const s = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 42,
-    backgroundColor: C.brand,
     alignItems: "center",
     justifyContent: "center",
     elevation: 8,
-    shadowColor: C.brand,
+    shadowColor: "#4F46E5",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
   },
-  micBigActive: { backgroundColor: C.danger },
+  micGradient: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
   voiceTranscript: {
     minHeight: 50,
     fontSize: 20,
@@ -4267,17 +5142,292 @@ const s = StyleSheet.create({
     gap: 6,
   },
   chipText: { fontSize: 13, fontWeight: "600", color: C.ink },
-  sortRow: { paddingHorizontal: GUTTER, paddingTop: 12, gap: 8 },
-  sortChip: {
+  filterTrigger: { flexDirection: "row", gap: 6 },
+  activeFilterChip: {
     minHeight: 36,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 18,
-    backgroundColor: C.surface,
+    backgroundColor: C.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeFilterChipText: { color: C.brand, fontSize: 11, fontWeight: "800" },
+  filterOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(12,14,40,0.56)",
+  },
+  filterBackdrop: { ...StyleSheet.absoluteFillObject },
+  filterSheet: {
+    height: "90%",
+    backgroundColor: "#F7F8FC",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.75)",
+  },
+  filterHandle: {
+    alignSelf: "center",
+    marginTop: 9,
+    marginBottom: 3,
+    width: 42,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: "#D8DAE8",
+  },
+  filterHeader: {
+    paddingHorizontal: 17,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9EAF4",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  filterHeaderIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: C.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterHeaderMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 7,
+  },
+  filterMetaDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.saffron,
+  },
+  filterMetaText: { fontSize: 11, color: C.inkSoft, fontWeight: "700" },
+  filterTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: C.ink,
+    letterSpacing: -0.35,
+  },
+  filterSubtitle: { fontSize: 11.5, color: C.inkSoft, marginTop: 3 },
+  filterClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: C.line,
     alignItems: "center",
     justifyContent: "center",
   },
+  filterBody: { paddingHorizontal: 14, paddingTop: 5, paddingBottom: 22 },
+  filterSectionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 14,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#ECEEF6",
+    shadowColor: "#24205F",
+    shadowOpacity: 0.045,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+  },
+  filterSectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginBottom: 12,
+  },
+  filterSectionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#F0EFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.05,
+    color: C.ink,
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  filterChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterOption: {
+    borderWidth: 1,
+    borderColor: "#E5E7F1",
+    backgroundColor: "#FBFCFF",
+    borderRadius: 13,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  filterOptionActive: {
+    backgroundColor: C.brand,
+    borderColor: C.brand,
+    shadowColor: C.brand,
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  filterOptionText: { fontSize: 12, fontWeight: "700", color: "#4D526F" },
+  filterOptionTextActive: { color: "#fff" },
+  filterMuted: { color: C.inkSoft, fontSize: 12, paddingVertical: 8 },
+  filterPriceHeadline: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: C.brand,
+    marginBottom: 14,
+    letterSpacing: -0.5,
+  },
+  filterPriceInputs: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  filterPriceField: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#E4E6F0",
+    borderRadius: 15,
+    padding: 12,
+    backgroundColor: "#FBFCFF",
+  },
+  filterFieldLabel: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: C.inkSoft,
+    marginBottom: 5,
+    letterSpacing: 0.7,
+  },
+  filterPriceInput: {
+    padding: 0,
+    color: C.ink,
+    fontSize: 16,
+    fontWeight: "800",
+    minHeight: 28,
+  },
+  filterSortList: { gap: 8 },
+  filterSortOption: {
+    minHeight: 50,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#E7E9F2",
+    backgroundColor: "#FBFCFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  filterFooter: {
+    paddingHorizontal: 15,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 25 : 14,
+    borderTopWidth: 1,
+    borderTopColor: "#E9EAF4",
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    gap: 10,
+  },
+  filterResetButton: {
+    minHeight: 50,
+    paddingHorizontal: 18,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#E2E4EF",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterResetText: { color: C.ink, fontWeight: "800", fontSize: 13 },
+  filterApplyButton: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: 16,
+    borderRadius: 15,
+    backgroundColor: C.brand,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: C.brand,
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  filterApplyText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  stickyFilterOverlay: {
+    position: "absolute",
+    // The measured search navbar height is applied inline so this rail sits
+    // exactly against its bottom edge on different screen sizes.
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 16,
+    backgroundColor: C.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
+    overflow: "hidden",
+    shadowColor: "#15123D",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 7,
+  },
+  stickyFilterInner: {
+    paddingTop: 7,
+    paddingBottom: 7,
+    backgroundColor: C.surface,
+  },
+  stickyFilterHeading: {
+    minHeight: 22,
+    paddingHorizontal: GUTTER,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 1,
+  },
+  stickyFilterTitleWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  stickyFilterTitle: {
+    color: C.ink,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  stickyFilterHint: { color: C.inkMuted, fontSize: 11, fontWeight: "600" },
+  activeFilterCountPill: {
+    backgroundColor: C.brandSoft,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  activeFilterCountText: { color: C.brand, fontSize: 10, fontWeight: "800" },
+  sortRow: {
+    paddingHorizontal: GUTTER,
+    paddingTop: 9,
+    paddingBottom: 9,
+    gap: 8,
+  },
+  stickySortRow: { paddingTop: 5, paddingBottom: 1 },
+  sortChip: {
+    minHeight: 38,
+    paddingHorizontal: 13,
+    borderRadius: 14,
+    backgroundColor: "#F8F8FE",
+    borderWidth: 1,
+    borderColor: "#E7E7F5",
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterTrigger: { backgroundColor: C.brandSoft, borderColor: "#D9D7FF" },
   sortChipActive: { backgroundColor: C.brand, borderColor: C.brand },
   sortChipText: { fontSize: 12.5, fontWeight: "700", color: C.inkSoft },
   sortChipTextActive: { color: "#fff" },
@@ -4295,7 +5445,7 @@ const s = StyleSheet.create({
   moreBtnText: { color: C.brand, fontSize: 14, fontWeight: "800" },
   topBtnWrap: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 112 : 88 + 39,
+    top: Platform.OS === "ios" ? 112 : 88 + 39 + 30,
     alignSelf: "center",
     left: 0,
     right: 0,
@@ -4591,6 +5741,7 @@ const s = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: -0.15,
   },
+
   cartSub: {
     marginTop: 2,
     color: "rgba(255,255,255,0.9)",
@@ -4670,6 +5821,40 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  wishlistHeaderBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    marginLeft: 8,
+    marginRight: 9,
+    position: "relative",
+  },
+  wishlistCountBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#dc1d1d",
+    borderWidth: 1.5,
+    borderColor: "#3A2FB8",
+  },
+  wishlistCountText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "900",
+    lineHeight: 13,
+    textAlign: "center",
   },
   quickActionText: {
     flexShrink: 1,
@@ -4788,48 +5973,54 @@ const s = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.94)",
   },
-  productPreviewImage: {
+  productPreviewGallery: {
+    alignItems: "center",
     width: "100%",
-    aspectRatio: 1,
+  },
+  productPreviewImageSlide: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productPreviewImage: {
     borderRadius: 20,
     backgroundColor: "#F4F4F5",
   },
-  previewCarouselFooter: {
+  productPreviewGalleryFooter: {
+    width: "100%",
     minHeight: 30,
+    marginTop: 10,
+    paddingHorizontal: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 4,
-    paddingTop: 9,
   },
-  previewImageCount: {
-    color: C.inkSoft,
-    fontSize: 12,
-    fontWeight: "700",
-    minWidth: 42,
-  },
-  previewDots: {
+  productPreviewDots: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
     flex: 1,
+    gap: 5,
   },
-  previewDot: {
-    width: 5,
-    height: 5,
+  productPreviewDot: {
+    width: 6,
+    height: 6,
     borderRadius: 3,
-    backgroundColor: "#D6D8E5",
+    backgroundColor: "#D7D9E5",
   },
-  previewDotActive: {
-    width: 16,
+  productPreviewDotActive: {
+    width: 18,
     backgroundColor: C.brand,
   },
-  previewSwipeHint: {
-    color: C.inkMuted,
-    fontSize: 10,
-    minWidth: 62,
-    textAlign: "right",
+  productPreviewImageCount: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: C.brandSoft,
+  },
+  productPreviewImageCountText: {
+    color: C.brand,
+    fontSize: 11,
+    fontWeight: "800",
   },
   productPreviewTitle: {
     color: "#111111",
@@ -4841,13 +6032,13 @@ const s = StyleSheet.create({
     paddingHorizontal: 2,
   },
   productPreviewShare: {
-    width: 69,
-    height: 69,
+    width: 63,
+    height: 63,
     borderRadius: 43,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 33,
+    marginTop: 36,
     elevation: 8,
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 4 },

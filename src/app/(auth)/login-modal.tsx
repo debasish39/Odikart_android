@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from "react";
 
 import {
@@ -27,11 +28,20 @@ import { LinearGradient } from "expo-linear-gradient";
 
 import { router } from "expo-router";
 
-import { getAuth, signInWithPhoneNumber } from "@react-native-firebase/auth";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithPhoneNumber,
+} from "@react-native-firebase/auth";
 
-import { BACKEND_URL } from "../api/api";
+import {
+  isAvailableAsync as isPhoneHintAvailable,
+  showPhoneNumberHintAsync,
+} from "expo-phone-number-hint";
 
-import { useAuth } from "../hooks/useAuth";
+import { BACKEND_URL } from "../../api/api";
+
+import { useAuth } from "../../hooks/useAuth";
 
 if (
   Platform.OS === "android" &&
@@ -47,13 +57,13 @@ if (
 ========================================================= */
 
 const C = {
-  brand: "#3A2FB8",
+  brand: "#2563EB",
 
-  brandBright: "#5B4BFF",
+  brandBright: "#7C3AED",
 
-  brandDark: "#241C85",
+  brandDark: "#312E81",
 
-  brandSoft: "#EEF0FF",
+  brandSoft: "#EEF2FF",
 
   bg: "#F6F7FB",
 
@@ -86,9 +96,9 @@ const HEADER_HEIGHT_COMPACT = 84;
 
 // Save login-header.webp in assets/images/. The path assumes this file is at src/app/ (adjust the ../ count if not).
 
-const HEADER_IMAGE = require("../../assets/images/login-header-3.webp");
+const HEADER_IMAGE = require("../../../assets/images/login-header-3.webp");
 // Place your OdiKart logo image at this path (webp with transparent background recommended).
-const BRAND_LOGO = require("../../assets/images/logo.webp");
+const BRAND_LOGO = require("../../../assets/images/logo.webp");
 
 type Step = "phone" | "otp" | "completeProfile";
 
@@ -170,7 +180,12 @@ export default function LoginModal() {
       backendConfigured: Boolean(BACKEND_URL),
       // Do not log phone numbers, tokens, or the full backend URL.
     });
-    return () => debugLog("login modal unmounted");
+    return () => {
+      otpFlowActiveRef.current = false;
+      autoVerifiedPendingRef.current = false;
+      phoneBeingVerifiedRef.current = "";
+      debugLog("login modal unmounted");
+    };
   }, []);
 
   const [step, setStep] = useState<Step>("phone");
@@ -184,6 +199,13 @@ export default function LoginModal() {
   const [timer, setTimer] = useState(0);
 
   const [loading, setLoading] = useState(false);
+
+  const [phoneHintLoading, setPhoneHintLoading] = useState(false);
+  const autoSendPhoneRef = useRef("");
+  const otpSendingRef = useRef(false);
+  // Prevent the native Google phone-number picker from opening more than once
+  // during this LoginModal screen instance.
+  const phoneHintAutoOpened = useRef(false);
 
   const [error, setError] = useState("");
 
@@ -206,12 +228,107 @@ export default function LoginModal() {
 
   const verifyingRef = useRef(false);
 
+  // Firebase Android can verify an incoming OTP in the background. These refs
+  // let the auth-state listener identify that verification belongs to the
+  // phone number currently being entered in this login flow.
+  const otpFlowActiveRef = useRef(false);
+  const phoneBeingVerifiedRef = useRef("");
+  const verifyPhoneOtpRef = useRef<((value?: string) => Promise<void>) | null>(
+    null,
+  );
+  const loadingRef = useRef(loading);
+  const autoVerifiedPendingRef = useRef(false);
+  loadingRef.current = loading;
+
   const stepAnim = useRef(new Animated.Value(1)).current;
 
   const shakeX = useRef(new Animated.Value(0)).current;
   const shineX = useRef(new Animated.Value(-1)).current;
 
   const phoneValid = /^[6-9]\d{9}$/.test(normalizePhone(phone));
+
+  /* ---------- Google Phone Number Hint ---------- */
+
+  const choosePhoneNumber = async () => {
+    if (phoneHintLoading || loading) return;
+
+    if (Platform.OS !== "android") {
+      setError(
+        "Automatic phone number selection is available on Android only. Please enter your number manually.",
+      );
+      return;
+    }
+
+    Keyboard.dismiss();
+    setError("");
+    setDiagnostic("");
+    setPhoneHintLoading(true);
+
+    try {
+      const available = await isPhoneHintAvailable();
+
+      if (!available) {
+        setError(
+          "Phone number selection is unavailable on this device. Please enter your number manually.",
+        );
+        return;
+      }
+
+      // Opens Google's native SIM phone-number chooser.
+      const result = await showPhoneNumberHintAsync();
+
+      // Closing the Google picker is not an error; keep the current input.
+      if (result.canceled || !result.hint) return;
+
+      const rawNumber = result.hint.e164 || result.hint.number || "";
+      let digits = rawNumber.replace(/\D/g, "");
+
+      // The OdiKart phone field stores only the 10-digit Indian mobile number.
+      if (digits.length === 12 && digits.startsWith("91")) {
+        digits = digits.slice(2);
+      } else if (digits.length === 11 && digits.startsWith("0")) {
+        digits = digits.slice(1);
+      }
+
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        setError(
+          "The selected number doesn't look like a valid 10-digit Indian mobile number. Please enter it manually.",
+        );
+        return;
+      }
+
+      setPhone(digits);
+      setFocused(null);
+      debugLog("Google phone number hint selected", {
+        phoneLength: digits.length,
+        regionCode: result.hint.regionCode ?? null,
+      });
+    } catch (err: any) {
+      debugError("Google phone number hint failed", err);
+      setError(
+        "Couldn't open phone number selection. You can still enter your mobile number manually.",
+      );
+    } finally {
+      setPhoneHintLoading(false);
+    }
+  };
+
+  /* ---------- automatically offer the Google phone-number picker ---------- */
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    // Let the login modal finish appearing before opening Google's native UI.
+    // The ref also prevents repeated prompts during this screen instance.
+    const timeout = setTimeout(() => {
+      if (phoneHintAutoOpened.current) return;
+
+      phoneHintAutoOpened.current = true;
+      void choosePhoneNumber();
+    }, 700);
+
+    return () => clearTimeout(timeout);
+  }, []);
 
   /* ---------- resend timer ---------- */
 
@@ -322,7 +439,9 @@ export default function LoginModal() {
   ======================================================= */
 
   const sendPhoneOtp = async () => {
-    if (loading) {
+    // State updates are asynchronous. This ref closes the small window in
+    // which manual Continue and automatic OTP sending could run together.
+    if (loadingRef.current || otpSendingRef.current) {
       debugLog("send OTP ignored: request already in progress");
       return;
     }
@@ -347,7 +466,19 @@ export default function LoginModal() {
       return;
     }
 
+    // Share the duplicate-request guard between the manual button and
+    // automatic 10-digit trigger.
+    autoSendPhoneRef.current = digits;
+    otpSendingRef.current = true;
+
     // A new send attempt must never reuse an old confirmation session.
+    // Keep the expected number so Firebase's Android auto-verification can
+    // safely complete the matching login without requiring a typed code.
+    // Start a fresh verification attempt. Clear any deferred callback from a
+    // previous attempt so it cannot trigger a second backend login.
+    autoVerifiedPendingRef.current = false;
+    otpFlowActiveRef.current = true;
+    phoneBeingVerifiedRef.current = `+91${digits}`;
     setLoading(true);
     setConfirmation(null);
     setOtp("");
@@ -391,6 +522,9 @@ export default function LoginModal() {
         `Stage: SEND_OTP\nCode: ${err?.code ?? "no-code"}\nMessage: ${err?.message ?? String(err)}`,
       );
       setConfirmation(null);
+      otpFlowActiveRef.current = false;
+      autoVerifiedPendingRef.current = false;
+      phoneBeingVerifiedRef.current = "";
 
       if (err?.code === "auth/too-many-requests") {
         setError(
@@ -400,10 +534,48 @@ export default function LoginModal() {
         setError(getErrorMessage(err, "Unable to send OTP."));
       }
     } finally {
+      otpSendingRef.current = false;
       setLoading(false);
       debugLog("send OTP finished", { loadingWillBeCleared: true });
     }
   };
+  /* ---------- AUTO SEND OTP AFTER 10 DIGITS ---------- */
+
+  useEffect(() => {
+    const digits = normalizePhone(phone);
+
+    // Reset the guard if the user edits or clears the number.
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      autoSendPhoneRef.current = "";
+      return;
+    }
+
+    // Wait until the Google picker has finished and the phone screen is idle.
+    if (step !== "phone" || loading || phoneHintLoading) return;
+
+    // Prevent duplicate requests for the same number.
+    if (autoSendPhoneRef.current === digits) return;
+
+    const timeout = setTimeout(() => {
+      // The user may have started another action while this timer was pending.
+      if (
+        loadingRef.current ||
+        otpSendingRef.current ||
+        step !== "phone" ||
+        phoneHintLoading
+      ) {
+        return;
+      }
+
+      autoSendPhoneRef.current = digits;
+      debugLog("Automatic OTP triggered after 10 digits", {
+        phoneLength: digits.length,
+      });
+      void sendPhoneOtp();
+    }, 350);
+
+    return () => clearTimeout(timeout);
+  }, [phone, step, loading, phoneHintLoading]);
 
   const verifyPhoneOtp = async (value: string = otp) => {
     if (verifyingRef.current || loading) {
@@ -412,6 +584,13 @@ export default function LoginModal() {
     }
 
     const code = value.replace(/\D/g, "").slice(0, OTP_LENGTH);
+    const auth = getAuth();
+    const expectedPhone = `+91${normalizePhone(phone)}`;
+    const alreadyVerifiedUser = auth.currentUser;
+    const isAlreadyAutoVerified = Boolean(
+      alreadyVerifiedUser && alreadyVerifiedUser.phoneNumber === expectedPhone,
+    );
+
     setError("");
     setDiagnostic("");
 
@@ -421,15 +600,21 @@ export default function LoginModal() {
       hasConfirmation: Boolean(confirmation),
       hasConfirmFunction: typeof confirmation?.confirm === "function",
       currentStep: step,
+      firebaseAlreadyVerified: isAlreadyAutoVerified,
     });
 
-    if (code.length !== OTP_LENGTH) {
+    // Firebase Android auto-verification supplies an authenticated user rather
+    // than exposing the SMS digits. In that case, skip manual code entry.
+    if (code.length !== OTP_LENGTH && !isAlreadyAutoVerified) {
       setError("Enter the complete 6-digit OTP.");
       shake();
       return;
     }
 
-    if (!confirmation || typeof confirmation.confirm !== "function") {
+    if (
+      !isAlreadyAutoVerified &&
+      (!confirmation || typeof confirmation.confirm !== "function")
+    ) {
       debugLog("OTP verification stopped: no valid confirmation session");
 
       setError(
@@ -437,6 +622,8 @@ export default function LoginModal() {
       );
 
       setConfirmation(null);
+      otpFlowActiveRef.current = false;
+      phoneBeingVerifiedRef.current = "";
       setOtp("");
       setStep("phone");
       return;
@@ -455,16 +642,9 @@ export default function LoginModal() {
       // On Android, Firebase can automatically verify the SMS and sign the
       // user in before they press "Verify & Login". In that case, confirming
       // the same SMS code again can return auth/session-expired.
-      const auth = getAuth();
-      const expectedPhone = `+91${normalizePhone(phone)}`;
-      const alreadyVerifiedUser = auth.currentUser;
-
       let firebaseUser = null;
 
-      if (
-        alreadyVerifiedUser &&
-        alreadyVerifiedUser.phoneNumber === expectedPhone
-      ) {
+      if (isAlreadyAutoVerified) {
         firebaseUser = alreadyVerifiedUser;
         debugLog("Firebase phone was already auto-verified", {
           currentUserMatchesEnteredPhone: true,
@@ -484,7 +664,10 @@ export default function LoginModal() {
       debugLog("Firebase OTP verification succeeded", {
         hasFirebaseUser: true,
         hasUid: Boolean(firebaseUser.uid),
+        automaticAndroidVerification: isAlreadyAutoVerified,
       });
+      otpFlowActiveRef.current = false;
+      autoVerifiedPendingRef.current = false;
 
       // STAGE 2: Obtain the Firebase ID token.
       diagnosticStage = "GET_FIREBASE_ID_TOKEN";
@@ -544,6 +727,8 @@ export default function LoginModal() {
       diagnosticStage = "SAVE_APP_SESSION";
       await login(data.token, data.user ?? null);
 
+      otpFlowActiveRef.current = false;
+      phoneBeingVerifiedRef.current = "";
       setConfirmation(null);
       debugLog("Login successful; navigating to tabs");
       router.replace("/(tabs)");
@@ -558,13 +743,16 @@ export default function LoginModal() {
       // Keep Firebase errors distinguishable from backend errors.
       if (codeName === "auth/invalid-verification-code") {
         setError(
-          "Firebase rejected this OTP. Check that you entered the latest code sent for this verification session.",
+          "Incorrect OTP. Please enter the correct 6-digit code. Make sure you're using the latest SMS code.",
         );
       } else if (
         codeName === "auth/session-expired" ||
         codeName === "auth/code-expired"
       ) {
         setConfirmation(null);
+        otpFlowActiveRef.current = false;
+        autoVerifiedPendingRef.current = false;
+        phoneBeingVerifiedRef.current = "";
         setOtp("");
         setStep("phone");
         setError(
@@ -597,6 +785,46 @@ export default function LoginModal() {
       debugLog("OTP verification finished");
     }
   };
+
+  // Keep the latest verifier available to the one-time Firebase listener.
+  verifyPhoneOtpRef.current = verifyPhoneOtp;
+
+  // On Android, Firebase may automatically resolve the SMS and sign in before
+  // the user types anything. Route that verified Firebase user through the
+  // same existing Odikart backend-login flow used by manual OTP confirmation.
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(getAuth(), (user) => {
+      if (!user || !otpFlowActiveRef.current) return;
+
+      const expectedPhone = phoneBeingVerifiedRef.current;
+      if (!expectedPhone || user.phoneNumber !== expectedPhone) return;
+
+      debugLog("Firebase Android OTP auto-verification detected", {
+        matchingPhone: true,
+        backendLoginWillStart: true,
+      });
+
+      if (loadingRef.current) {
+        // The SMS can be auto-verified before the send request finishes.
+        // Defer backend login until the send operation releases its loading lock.
+        autoVerifiedPendingRef.current = true;
+        return;
+      }
+
+      void verifyPhoneOtpRef.current?.("");
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (loading || !autoVerifiedPendingRef.current) return;
+
+    autoVerifiedPendingRef.current = false;
+    if (otpFlowActiveRef.current) {
+      void verifyPhoneOtpRef.current?.("");
+    }
+  }, [loading]);
 
   const completePhoneProfile = async () => {
     if (loading) {
@@ -697,14 +925,15 @@ export default function LoginModal() {
     setError("");
 
     if (step === "otp") {
+      // Ignore late Firebase auto-verification from the abandoned OTP step.
+      otpFlowActiveRef.current = false;
+      autoVerifiedPendingRef.current = false;
+      phoneBeingVerifiedRef.current = "";
+
       setStep("phone");
-
       setConfirmation(null);
-
       setOtp("");
-
       setTimer(0);
-
       return;
     }
 
@@ -726,6 +955,10 @@ export default function LoginModal() {
   const closeModal = () => {
     debugLog("close login modal pressed");
     Keyboard.dismiss();
+
+    otpFlowActiveRef.current = false;
+    autoVerifiedPendingRef.current = false;
+    phoneBeingVerifiedRef.current = "";
 
     if (router.canGoBack()) {
       router.back();
@@ -929,7 +1162,6 @@ export default function LoginModal() {
                         value={displayPhone(phone)}
                         onChangeText={(value) => {
                           setPhone(normalizePhone(value));
-
                           setError("");
                         }}
                         onFocus={() => setFocused("phone")}
@@ -943,6 +1175,7 @@ export default function LoginModal() {
                         autoCorrect={false}
                         autoComplete="tel"
                         textContentType="telephoneNumber"
+                        importantForAutofill="yes"
                         selectionColor={C.brand}
                         accessibilityLabel="Mobile number"
                       />
@@ -955,6 +1188,42 @@ export default function LoginModal() {
                         />
                       ) : null}
                     </View>
+
+                    {Platform.OS === "android" ? (
+                      <Pressable
+                        onPress={choosePhoneNumber}
+                        disabled={phoneHintLoading || loading}
+                        style={({ pressed }) => [
+                          s.phoneHintButton,
+                          pressed && { opacity: 0.72 },
+                          (phoneHintLoading || loading) && { opacity: 0.6 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Choose a phone number from this device"
+                      >
+                        {phoneHintLoading ? (
+                          <ActivityIndicator size="small" color={C.brand} />
+                        ) : (
+                          <Ionicons
+                            name="phone-portrait-outline"
+                            size={17}
+                            color={C.brand}
+                          />
+                        )}
+                        <Text style={s.phoneHintButtonText}>
+                          {phoneHintLoading
+                            ? "Finding phone numbers..."
+                            : "Use a number from this phone"}
+                        </Text>
+                        {!phoneHintLoading ? (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={16}
+                            color={C.brand}
+                          />
+                        ) : null}
+                      </Pressable>
+                    ) : null}
 
                     {!error ? (
                       <Text style={s.helper}>
@@ -969,6 +1238,9 @@ export default function LoginModal() {
                 {step === "otp" ? (
                   <>
                     <Animated.View
+                      onTouchStart={() => {
+                        if (!loading) otpInputRef.current?.focus();
+                      }}
                       style={[
                         s.otpWrap,
                         { transform: [{ translateX: shakeX }] },
@@ -1003,17 +1275,44 @@ export default function LoginModal() {
                         style={s.otpHiddenInput}
                         value={otp}
                         onChangeText={(value) => {
-                          setOtp(value.replace(/\D/g, "").slice(0, OTP_LENGTH));
+                          const nextOtp = value
+                            .replace(/\D/g, "")
+                            .slice(0, OTP_LENGTH);
 
+                          setOtp(nextOtp);
                           setError("");
+
+                          // Verify immediately when all 6 digits are entered
+                          // (including SMS autofill). The ref prevents duplicate requests.
+                          if (
+                            nextOtp.length === OTP_LENGTH &&
+                            !verifyingRef.current
+                          ) {
+                            void verifyPhoneOtp(nextOtp);
+                          }
                         }}
                         onFocus={() => setFocused("otp")}
                         onBlur={() => setFocused(null)}
+                        showSoftInputOnFocus={true}
                         keyboardType="number-pad"
                         maxLength={OTP_LENGTH}
                         editable={!loading}
-                        autoComplete="sms-otp"
+                        // Android SMS OTP autofill: when the device keyboard
+                        // offers the detected code, it is inserted into this
+                        // controlled input and the existing 6-digit handler
+                        // verifies it automatically.
+                        // Android uses the sms-otp autofill hint; iOS uses
+                        // oneTimeCode. The platform-specific hint helps the OS
+                        // offer the code without giving the app permission to
+                        // read the user's entire SMS inbox.
+                        autoComplete={
+                          Platform.OS === "android"
+                            ? "sms-otp"
+                            : "one-time-code"
+                        }
                         textContentType="oneTimeCode"
+                        importantForAutofill="yes"
+                        autoCorrect={false}
                         caretHidden
                         selectionColor="transparent"
                         accessibilityLabel="6-digit verification code"
@@ -1268,7 +1567,8 @@ function PrimaryButton({
       ]}
     >
       <LinearGradient
-        colors={[C.brand, C.brandBright]}
+        colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+        locations={[0, 0.52, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={s.btn}
@@ -1466,7 +1766,23 @@ const s = StyleSheet.create({
     backgroundColor: C.line,
   },
 
-  helper: { marginTop: 10, fontSize: 12.5, color: C.inkMuted },
+  phoneHintButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 13,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+  },
+
+  phoneHintButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: C.brand,
+  },
+
+  helper: { marginTop: 7, fontSize: 12.5, color: C.inkMuted },
 
   /* otp */
 

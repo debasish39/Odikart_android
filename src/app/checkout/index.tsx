@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -8,8 +9,6 @@ import React, {
 
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Image,
   Modal,
   Pressable,
@@ -23,6 +22,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { colors } from "../../theme/colors";
 import { useAuth } from "../../context/AuthContext";
@@ -97,45 +97,13 @@ function SkeletonBlock({
   radius?: number;
   style?: any;
 }) {
-  const opacity = useRef(
-    new Animated.Value(0.45)
-  ).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.85,
-          duration: 650,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.45,
-          duration: 650,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    animation.start();
-
-    return () => {
-      animation.stop();
-    };
-  }, [opacity]);
-
+  // Static placeholders render much cheaper than starting an animation
+  // loop for every individual skeleton block.
   return (
-    <Animated.View
+    <View
       style={[
         styles.skeletonBlock,
-        {
-          width,
-          height,
-          borderRadius: radius,
-          opacity,
-        },
+        { width, height, borderRadius: radius },
         style,
       ]}
     />
@@ -212,7 +180,7 @@ function CheckoutSkeleton() {
           styles.skeletonContent
         }
       >
-        {[1, 2, 3, 4, 5].map((section) => (
+        {[1, 2, 3].map((section) => (
           <View
             key={section}
             style={styles.skeletonSection}
@@ -680,159 +648,150 @@ export default function CheckoutScreen() {
      LOAD CHECKOUT
   ======================================================= */
 
-  const loadCheckout =
-    useCallback(async () => {
-      try {
-        setLoading(true);
+  const loadAvailableCoupons = useCallback(async () => {
+    try {
+      const response = await api.get("/coupons/available");
+      const data = response?.data;
 
-        console.log(
-          "GET MY ADDRESSES"
-        );
+      const list: AvailableCoupon[] =
+        Array.isArray(data?.coupons)
+          ? data.coupons
+          : Array.isArray(data?.data?.coupons)
+          ? data.data.coupons
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
 
-        const addressResponse =
-          await getMyAddresses();
+      const now = new Date();
 
-        console.log(
-          "GET ADDRESSES RESPONSE:",
-          addressResponse
-        );
+      const active = list.filter((coupon) => {
+        if (!coupon?.code || coupon.isActive === false) return false;
+        if (coupon.expiryDate) {
+          const expiry = new Date(coupon.expiryDate);
+          if (!Number.isNaN(expiry.getTime()) && expiry <= now) {
+            return false;
+          }
+        }
+        return true;
+      });
 
-        const addressList: Address[] =
-          Array.isArray(
-            addressResponse?.addresses
-          )
-            ? addressResponse.addresses
-            : Array.isArray(
-                addressResponse?.data
-              )
-            ? addressResponse.data
-            : addressResponse?.data &&
-              !Array.isArray(
-                addressResponse.data
-              ) &&
-              Array.isArray(
-                addressResponse.data
-                  .addresses
-              )
-            ? addressResponse.data
-                .addresses
-            : [];
+      setAvailableCoupons(active);
+    } catch (error: any) {
+      // Coupon suggestions are optional. Never block checkout if this call fails.
+      console.log(
+        "AVAILABLE COUPONS ERROR:",
+        error?.response?.data || error?.message || error
+      );
+      setAvailableCoupons([]);
+    }
+  }, []);
 
-        setAddresses(addressList);
+  const hasLoadedCheckoutRef = useRef(false);
 
-        const defaultAddress =
-          addressList.find(
-            (item) =>
-              item.isDefault
-          ) ||
-          addressList[0] ||
-          null;
+  const loadCheckout = useCallback(async () => {
+    // Keep the already-rendered checkout visible during focus refreshes.
+    if (!hasLoadedCheckoutRef.current) {
+      setLoading(true);
+    }
 
-        setSelectedAddress(
-          defaultAddress
-        );
+    try {
+      // Addresses and cart are independent requests; run them together.
+      const [addressResult, cartResult] = await Promise.allSettled([
+        getMyAddresses(),
+        api.get("/cart"),
+      ]);
 
-        console.log("GET CART");
-
-        const cartResponse =
-          await api.get("/cart");
-
-        console.log(
-          "GET CART RESPONSE:",
-          cartResponse.data
-        );
-
-        const items =
-          cartResponse?.data?.items ||
-          cartResponse?.data?.cart
-            ?.items ||
-          [];
-
-        const normalizedItems:
-          CartItem[] = items.map(
-          (item: any) => ({
-            ...item,
-
-            productId:
-              item.productId ||
-              item.product?._id ||
-              item.product?.id,
-
-            quantity: Number(
-              item.quantity || 0
-            ),
-
-            price: Number(
-              item.price || 0
-            ),
-
-            name:
-              item.name ||
-              item.product?.name ||
-              item.product?.title ||
-              item.productName ||
-              "Product",
-
-            image:
-              item.image ||
-              item.product?.media
-                ?.thumbnail ||
-              item.product?.media
-                ?.images?.[0],
-
-            variantSku:
-              item.variantSku || "",
-
-            sellerId:
-              item.sellerId ||
-              item.product?.sellerId ||
-              item.product?.seller?._id ||
-              null,
-          })
-        );
-
-        setCartItems(
-          normalizedItems
-        );
-
-        const calculatedSubtotal =
-          normalizedItems.reduce(
-            (sum, item) =>
-              sum +
-              Number(
-                item.price || 0
-              ) *
-                Number(
-                  item.quantity || 0
-                ),
-            0
-          );
-
-        setSubtotal(
-          calculatedSubtotal
-        );
-
-        // Load customer-safe coupon suggestions independently.
-        await loadAvailableCoupons();
-      } catch (error: any) {
-        console.log(
-          "CHECKOUT LOAD ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
-
-        showToast(
-          error?.response?.data
-            ?.message ||
-            error?.message ||
-            "Unable to load checkout.",
-          "error"
-        );
-      } finally {
-        setLoading(false);
+      if (addressResult.status === "rejected") {
+        throw addressResult.reason;
       }
-    }, [loadAvailableCoupons, showToast]);
+
+      const addressResponse = addressResult.value;
+      const addressList: Address[] =
+        Array.isArray(addressResponse?.addresses)
+          ? addressResponse.addresses
+          : Array.isArray(addressResponse?.data)
+          ? addressResponse.data
+          : addressResponse?.data &&
+            !Array.isArray(addressResponse.data) &&
+            Array.isArray(addressResponse.data.addresses)
+          ? addressResponse.data.addresses
+          : [];
+
+      setAddresses(addressList);
+
+      setSelectedAddress((previous) => {
+        // Preserve the user's current selection during a background refresh.
+        if (previous && addressList.some((item) => String(item._id) === String(previous._id))) {
+          return addressList.find((item) => String(item._id) === String(previous._id)) || previous;
+        }
+        return addressList.find((item) => item.isDefault) || addressList[0] || null;
+      });
+
+      if (cartResult.status === "rejected") {
+        throw cartResult.reason;
+      }
+
+      const cartResponse = cartResult.value;
+      const items =
+        cartResponse?.data?.items ||
+        cartResponse?.data?.cart?.items ||
+        [];
+
+      const normalizedItems: CartItem[] = (Array.isArray(items) ? items : []).map(
+        (item: any) => ({
+          ...item,
+          productId: item.productId || item.product?._id || item.product?.id,
+          quantity: Number(item.quantity || 0),
+          price: Number(item.price || 0),
+          name:
+            item.name ||
+            item.product?.name ||
+            item.product?.title ||
+            item.productName ||
+            "Product",
+          image:
+            item.image ||
+            item.product?.media?.thumbnail ||
+            item.product?.media?.images?.[0],
+          variantSku: item.variantSku || "",
+          sellerId:
+            item.sellerId ||
+            item.product?.sellerId ||
+            item.product?.seller?._id ||
+            null,
+        })
+      );
+
+      setCartItems(normalizedItems);
+      setSubtotal(
+        normalizedItems.reduce(
+          (sum, item) =>
+            sum + Number(item.price || 0) * Number(item.quantity || 0),
+          0
+        )
+      );
+
+      hasLoadedCheckoutRef.current = true;
+
+      // Coupons are optional. Load them in the background so they don't
+      // keep the checkout skeleton on screen.
+      void loadAvailableCoupons();
+    } catch (error: any) {
+      console.log(
+        "CHECKOUT LOAD ERROR:",
+        error?.response?.data || error?.message || error
+      );
+
+      showToast(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to load checkout.",
+        "error"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [loadAvailableCoupons, showToast]);
 
   useFocusEffect(
     useCallback(() => {
@@ -915,43 +874,7 @@ export default function CheckoutScreen() {
      COUPON
   ======================================================= */
 
-  const loadAvailableCoupons = useCallback(async () => {
-    try {
-      const response = await api.get("/coupons/available");
-      const data = response?.data;
 
-      const list: AvailableCoupon[] =
-        Array.isArray(data?.coupons)
-          ? data.coupons
-          : Array.isArray(data?.data?.coupons)
-          ? data.data.coupons
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
-
-      const now = new Date();
-
-      const active = list.filter((coupon) => {
-        if (!coupon?.code || coupon.isActive === false) return false;
-        if (coupon.expiryDate) {
-          const expiry = new Date(coupon.expiryDate);
-          if (!Number.isNaN(expiry.getTime()) && expiry <= now) {
-            return false;
-          }
-        }
-        return true;
-      });
-
-      setAvailableCoupons(active);
-    } catch (error: any) {
-      // Coupon suggestions are optional. Never block checkout if this call fails.
-      console.log(
-        "AVAILABLE COUPONS ERROR:",
-        error?.response?.data || error?.message || error
-      );
-      setAvailableCoupons([]);
-    }
-  }, []);
 
   const suggestedCoupons = useMemo(() => {
     const eligible = availableCoupons.filter((coupon) =>
@@ -4067,31 +3990,33 @@ export default function CheckoutScreen() {
             handlePlaceOrder
           }
         >
-          {placingOrder ? (
-            <ActivityIndicator
-              size="small"
-              color="#FFFFFF"
-            />
-          ) : (
-            <>
-              <Text
-                style={
-                  styles.placeOrderText
-                }
-              >
-                {paymentMethod ===
-                "cod"
-                  ? "Place Order"
-                  : "Continue to Pay"}
-              </Text>
-
-              <Ionicons
-                name="arrow-forward"
-                size={19}
+          <LinearGradient
+            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.placeOrderGradient}
+          >
+            {placingOrder ? (
+              <ActivityIndicator
+                size="small"
                 color="#FFFFFF"
               />
-            </>
-          )}
+            ) : (
+              <>
+                <Text style={styles.placeOrderText}>
+                  {paymentMethod === "cod"
+                    ? "Place Order"
+                    : "Continue to Pay"}
+                </Text>
+
+                <Ionicons
+                  name="arrow-forward"
+                  size={19}
+                  color="#FFFFFF"
+                />
+              </>
+            )}
+          </LinearGradient>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -5714,6 +5639,17 @@ const styles = StyleSheet.create({
       height: 5,
     },
     elevation: 5,
+  },
+
+  placeOrderGradient: {
+    flex: 1,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    borderRadius: 17,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
 
   placeOrderDisabled: {

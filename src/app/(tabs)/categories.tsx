@@ -11,6 +11,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -86,15 +87,28 @@ function categoryMatch(productValue: any, category: Category) {
   const name = getName(category).trim().toLowerCase();
 
   if (productValue && typeof productValue === "object") {
-    const productId = String(productValue._id || productValue.id || "");
-    const productName = String(productValue.name || productValue.title || "")
+    const productId = String(
+      productValue._id ||
+        productValue.id ||
+        productValue.categoryId ||
+        productValue.subcategoryId ||
+        "",
+    );
+    const productName = String(
+      productValue.name ||
+        productValue.title ||
+        productValue.categoryName ||
+        productValue.subcategoryName ||
+        "",
+    )
       .trim()
       .toLowerCase();
+
     return (!!id && productId === id) || (!!name && productName === name);
   }
 
-  const value = String(productValue || "");
-  return (!!id && value === id) || value.trim().toLowerCase() === name;
+  const value = String(productValue || "").trim();
+  return (!!id && value === id) || value.toLowerCase() === name;
 }
 
 function ShimmerBlock({
@@ -176,17 +190,6 @@ function CategoriesSkeleton() {
         </View>
       </View>
 
-      <View style={styles.skeletonIntro}>
-        <View style={{ flex: 1 }}>
-          <ShimmerBlock style={{ width: 148, height: 19 }} radius={6} />
-          <ShimmerBlock
-            style={{ width: 188, height: 9, marginTop: 8 }}
-            radius={4}
-          />
-        </View>
-        <ShimmerBlock style={{ width: 38, height: 38 }} radius={13} />
-      </View>
-
       <View style={styles.skeletonGrid}>
         {Array.from({ length: 8 }).map((_, index) => (
           <CategorySkeletonCard key={`category-skeleton-${index}`} />
@@ -211,6 +214,7 @@ export default function CategoriesScreen() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const hasStartedRef = useRef(false);
   const requestRef = useRef(false);
 
@@ -323,17 +327,30 @@ export default function CategoriesScreen() {
             categoryMatch(product.subcategory, category),
         ).length;
 
-        const count =
+        // Prefer the count calculated from the loaded products. Some category
+        // APIs return a stale productCount (for example, 1 when 6 products exist).
+        // Use the API count only when this product response has no matching items.
+        const apiCount =
           typeof category.productCount === "number"
             ? category.productCount
             : typeof category.count === "number"
               ? category.count
-              : countFromProducts;
+              : 0;
+        const count = countFromProducts > 0 ? countFromProducts : apiCount;
 
         return { category, count, name };
       }),
     [categories, products],
   );
+
+  const filteredCategoryItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return categoryItems;
+    return categoryItems.filter(
+      ({ category, name }) =>
+        name.includes(query) || getName(category).toLowerCase().includes(query),
+    );
+  }, [categoryItems, searchQuery]);
 
   const openCategory = (category: Category) => {
     router.push({
@@ -365,43 +382,42 @@ export default function CategoriesScreen() {
         accessibilityRole="button"
         accessibilityLabel={`${getName(category)}, ${count} products`}
         onPress={() => openCategory(category)}
-        style={({ pressed }) => [
-          styles.card,
-          { backgroundColor: art.bg },
-          pressed && styles.cardPressed,
-        ]}
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       >
-        <View
-          pointerEvents="none"
-          style={[styles.cardAccent, { backgroundColor: art.tint }]}
-        />
-        <View style={styles.cardTop}>
-          <View style={styles.textBlock}>
-            <Text style={styles.categoryName} numberOfLines={2}>
-              {getName(category)}
-            </Text>
+        <View style={[styles.cardArt, { backgroundColor: art.bg }]}>
+          <View style={[styles.artOrb, { backgroundColor: art.tint }]} />
+          {image ? (
+            <Image
+              source={{ uri: image }}
+              style={styles.categoryImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View
+              style={[
+                styles.fallbackIcon,
+                { backgroundColor: `${art.tint}18` },
+              ]}
+            >
+              <Ionicons name={art.icon} size={39} color={art.tint} />
+            </View>
+          )}
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeText}>{count}</Text>
+          </View>
+        </View>
+        <View style={styles.cardInfo}>
+          <Text style={styles.categoryName} numberOfLines={1}>
+            {getName(category)}
+          </Text>
+          <View style={styles.cardBottom}>
             <Text style={styles.productCount}>
               {count} {count === 1 ? "product" : "products"}
             </Text>
+            <View style={[styles.exploreButton, { backgroundColor: art.bg }]}>
+              <Ionicons name="arrow-forward" size={15} color={art.tint} />
+            </View>
           </View>
-          <View
-            style={[styles.imageWrap, { backgroundColor: `${art.tint}12` }]}
-          >
-            {image ? (
-              <Image
-                source={{ uri: image }}
-                style={styles.categoryImage}
-                resizeMode="contain"
-              />
-            ) : (
-              <Ionicons name={art.icon} size={38} color={art.tint} />
-            )}
-          </View>
-        </View>
-        <View style={styles.cardFooter}>
-          <Text style={[styles.exploreText, { color: art.tint }]}>Explore</Text>
-          <Ionicons name="arrow-forward" size={14} color={art.tint} />
-          <View style={[styles.footerDot, { backgroundColor: art.tint }]} />
         </View>
       </Pressable>
     );
@@ -425,27 +441,31 @@ export default function CategoriesScreen() {
           <Ionicons name="chevron-back" size={23} color="#202124" />
         </Pressable>
         <Text style={styles.headerTitle}>Categories</Text>
-        <Pressable
-          style={styles.headerButton}
-          onPress={() => router.push("/(tabs)" as any)}
-          accessibilityLabel="Search products"
-        >
-          <Ionicons name="search-outline" size={22} color="#202124" />
-        </Pressable>
+        <View style={styles.headerButton}>
+          <Ionicons name="grid-outline" size={20} color="#2563EB" />
+        </View>
       </View>
 
-      <View style={styles.intro}>
-        <View style={styles.introCopy}>
-          <Text style={styles.eyebrow}>FIND YOUR FAVOURITES</Text>
-          <Text style={styles.introTitle}>Shop by category</Text>
-          <Text style={styles.introSubtitle}>
-            A little something for every day.
-          </Text>
-        </View>
-        <View style={styles.introIcon}>
-          <Ionicons name="sparkles-outline" size={24} color="#2563EB" />
-        </View>
-        <View pointerEvents="none" style={styles.introOrb} />
+      <View style={styles.searchBar}>
+        <Ionicons name="search-outline" size={20} color="#8490A5" />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search categories..."
+          placeholderTextColor="#98A2B3"
+          returnKeyType="search"
+          style={styles.searchInput}
+          accessibilityLabel="Search categories"
+          clearButtonMode="while-editing"
+        />
+        {searchQuery.length > 0 ? (
+          <Pressable
+            onPress={() => setSearchQuery("")}
+            accessibilityLabel="Clear search"
+          >
+            <Ionicons name="close-circle" size={19} color="#98A2B3" />
+          </Pressable>
+        ) : null}
       </View>
 
       {error ? (
@@ -459,7 +479,7 @@ export default function CategoriesScreen() {
       ) : null}
 
       <FlatList
-        data={categoryItems}
+        data={filteredCategoryItems}
         keyExtractor={(item, index) =>
           getId(item.category) || `${item.name}-${index}`
         }
@@ -480,9 +500,15 @@ export default function CategoriesScreen() {
             <View style={styles.emptyIcon}>
               <Ionicons name="grid-outline" size={34} color="#7C8AA5" />
             </View>
-            <Text style={styles.emptyTitle}>No categories yet</Text>
+            <Text style={styles.emptyTitle}>
+              {searchQuery.trim()
+                ? "No matching categories"
+                : "No categories yet"}
+            </Text>
             <Text style={styles.stateText}>
-              Pull down to refresh and try again.
+              {searchQuery.trim()
+                ? "Try another category name."
+                : "Pull down to refresh and try again."}
             </Text>
           </View>
         }
@@ -492,74 +518,65 @@ export default function CategoriesScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
+  safeArea: { flex: 1, backgroundColor: "#F7F9FC" },
   header: {
-    height: 52,
-    paddingHorizontal: 13,
+    height: 56,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#FFFFFF",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#F0F1F3",
+    borderBottomColor: "#E9EDF4",
   },
   headerButton: {
-    width: 36,
+    width: 40,
     height: 40,
-    borderRadius: 13,
+    borderRadius: 14,
+    backgroundColor: "#F3F6FF",
     alignItems: "center",
     justifyContent: "center",
   },
   headerTitle: {
     flex: 1,
     textAlign: "center",
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#17191C",
-    letterSpacing: 0.15,
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#17233E",
+    letterSpacing: -0.3,
   },
   intro: {
-    minHeight: 106,
-    marginHorizontal: 13,
-    marginTop: 13,
-    marginBottom: 6,
-    borderRadius: 19,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    backgroundColor: "#F2F6FF",
+    minHeight: 118,
+    marginHorizontal: 15,
+    marginTop: 15,
+    marginBottom: 12,
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 17,
+    backgroundColor: "#EAF1FF",
     flexDirection: "row",
     alignItems: "center",
     overflow: "hidden",
   },
-  introCopy: {
-    flex: 1,
-    zIndex: 1,
-  },
+  introCopy: { flex: 1, zIndex: 1 },
   eyebrow: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "900",
-    letterSpacing: 1.25,
+    letterSpacing: 1.35,
     color: "#5574B9",
   },
   introTitle: {
     color: "#17233E",
-    fontSize: 19,
+    fontSize: 22,
     fontWeight: "900",
-    marginTop: 5,
-    letterSpacing: -0.4,
+    marginTop: 6,
+    letterSpacing: -0.7,
   },
-  introSubtitle: {
-    color: "#6C7891",
-    fontSize: 10,
-    marginTop: 4,
-  },
+  introSubtitle: { color: "#63728D", fontSize: 12, marginTop: 5 },
   introIcon: {
-    width: 45,
-    height: 45,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 17,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
@@ -567,118 +584,130 @@ const styles = StyleSheet.create({
   },
   introOrb: {
     position: "absolute",
-    right: 26,
-    top: -43,
-    width: 118,
-    height: 118,
-    borderRadius: 59,
-    backgroundColor: "#E2EAFF",
-    opacity: 0.8,
+    right: 14,
+    top: -46,
+    width: 135,
+    height: 135,
+    borderRadius: 68,
+    backgroundColor: "#D7E3FF",
+    opacity: 0.85,
   },
-  gridContent: {
-    paddingHorizontal: 13,
-    paddingTop: 9,
-    paddingBottom: 28,
-  },
-  gridRow: {
-    gap: 10,
+  searchBar: {
+    minHeight: 50,
+    marginHorizontal: 15,
     marginBottom: 10,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E7EBF3",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    shadowColor: "#1C2D4A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.035,
+    shadowRadius: 8,
+    elevation: 1,
   },
+  searchInput: { flex: 1, paddingVertical: 10, color: "#17233E", fontSize: 13 },
+  gridContent: {
+    paddingHorizontal: 15,
+    paddingTop: 5,
+    paddingBottom: 115,
+    flexGrow: 1,
+  },
+  gridRow: { gap: 12, marginBottom: 12 },
   card: {
     flex: 1,
     minWidth: 0,
-    height: 108,
-    borderRadius: 15,
-    paddingHorizontal: 11,
-    paddingTop: 11,
-    paddingBottom: 9,
-    justifyContent: "space-between",
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.9)",
-    shadowColor: "#182746",
-    shadowOffset: { width: 0, height: 3 },
+    borderColor: "#EDF0F5",
+    shadowColor: "#192A46",
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.055,
-    shadowRadius: 7,
+    shadowRadius: 10,
     elevation: 2,
   },
-  cardAccent: {
+  cardPressed: { opacity: 0.9, transform: [{ scale: 0.975 }] },
+  cardArt: {
+    height: 125,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    margin: 7,
+    marginBottom: 0,
+    borderRadius: 16,
+  },
+  artOrb: {
     position: "absolute",
-    left: 0,
-    top: 13,
-    width: 3,
-    height: 31,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
-    opacity: 0.55,
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    opacity: 0.08,
+    right: -24,
+    top: -24,
   },
-  cardPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.975 }],
+  categoryImage: { width: "88%", height: "88%" },
+  fallbackIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  cardTop: {
-    flex: 1,
+  countBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    minWidth: 27,
+    height: 27,
+    paddingHorizontal: 7,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countBadgeText: { color: "#263653", fontSize: 10, fontWeight: "900" },
+  cardInfo: { paddingHorizontal: 12, paddingTop: 11, paddingBottom: 12 },
+  categoryName: {
+    color: "#18243B",
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 17,
+  },
+  cardBottom: {
+    marginTop: 9,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 4,
-  },
-  textBlock: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: "center",
-    paddingLeft: 2,
-  },
-  categoryName: {
-    color: "#202124",
-    fontSize: 12,
-    fontWeight: "900",
-    lineHeight: 15,
+    gap: 5,
   },
   productCount: {
-    color: "#747982",
-    fontSize: 9,
-    marginTop: 5,
-    lineHeight: 11,
+    color: "#8590A3",
+    fontSize: 10,
+    fontWeight: "600",
+    flexShrink: 1,
   },
-  imageWrap: {
-    width: 57,
-    height: 57,
-    borderRadius: 14,
+  exploreButton: {
+    width: 29,
+    height: 29,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
   },
-  categoryImage: {
-    width: 54,
-    height: 54,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 4,
-    paddingTop: 3,
-  },
-  exploreText: {
-    fontSize: 9,
-    fontWeight: "800",
-  },
-  footerDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    marginLeft: 2,
-    opacity: 0.65,
-  },
   skeletonIntro: {
-    minHeight: 106,
-    marginHorizontal: 13,
-    marginTop: 13,
+    minHeight: 118,
+    marginHorizontal: 15,
+    marginTop: 15,
     marginBottom: 15,
-    borderRadius: 19,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    backgroundColor: "#F2F6FF",
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 17,
+    backgroundColor: "#EAF1FF",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -686,15 +715,16 @@ const styles = StyleSheet.create({
   skeletonGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 13,
-    gap: 10,
+    paddingHorizontal: 15,
+    paddingBottom: 115,
+    gap: 12,
   },
   skeletonCard: {
-    width: "48.4%",
-    height: 108,
-    borderRadius: 15,
+    width: "48%",
+    height: 165,
+    borderRadius: 21,
     padding: 11,
-    backgroundColor: "#F7F8FA",
+    backgroundColor: "#FFFFFF",
     marginBottom: 0,
   },
   skeletonCardTop: {
@@ -703,17 +733,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  skeletonTextGroup: {
-    flex: 1,
-  },
-  skeletonImage: {
-    width: 54,
-    height: 54,
-  },
-  shimmerBase: {
-    backgroundColor: "#E6EAF0",
-    overflow: "hidden",
-  },
+  skeletonTextGroup: { flex: 1 },
+  skeletonImage: { width: 54, height: 54 },
+  shimmerBase: { backgroundColor: "#E7ECF4", overflow: "hidden" },
   shimmerGlow: {
     backgroundColor: "#FFFFFF",
     opacity: 0.8,
@@ -723,53 +745,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
-    paddingTop: 65,
+    paddingTop: 55,
   },
   emptyIcon: {
     width: 70,
     height: 70,
-    borderRadius: 23,
-    backgroundColor: "#F0F4FA",
+    borderRadius: 24,
+    backgroundColor: "#EDF2FA",
     alignItems: "center",
     justifyContent: "center",
   },
   stateText: {
     marginTop: 8,
-    color: "#7A808A",
+    color: "#7A879C",
     fontSize: 12,
     textAlign: "center",
+    lineHeight: 18,
   },
   emptyTitle: {
-    color: "#25282D",
+    color: "#202D45",
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
     marginTop: 13,
   },
   errorBox: {
-    marginHorizontal: 13,
-    marginTop: 12,
-    marginBottom: 4,
+    marginHorizontal: 15,
+    marginTop: 4,
+    marginBottom: 8,
     padding: 12,
-    borderRadius: 13,
-    backgroundColor: "#FFF1F1",
+    borderRadius: 15,
+    backgroundColor: "#FFF0F0",
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
-  errorText: {
-    flex: 1,
-    color: "#7F1D1D",
-    fontSize: 11,
-  },
+  errorText: { flex: 1, color: "#7F1D1D", fontSize: 11, lineHeight: 16 },
   retryButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 10,
     backgroundColor: "#2563EB",
   },
-  retryText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "800",
-  },
+  retryText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
 });

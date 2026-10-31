@@ -16,7 +16,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -26,10 +25,13 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Share from "react-native-share";
+import { LinearGradient } from "expo-linear-gradient";
 
 import {
   Gesture,
@@ -1113,7 +1115,8 @@ export default function ProductDetailsScreen() {
   };
 
   const initialProductId = String(Array.isArray(id) ? id[0] : id || "").trim();
-  const initialCachedProduct = productDetailsMemoryCache.get(initialProductId) || null;
+  const initialCachedProduct =
+    productDetailsMemoryCache.get(initialProductId) || null;
   const [product, setProduct] = useState<Product | null>(initialCachedProduct);
   const productLoadRequest = useRef(0);
 
@@ -1198,11 +1201,13 @@ export default function ProductDetailsScreen() {
       setSelectedVariant(activeVariant);
 
       const initialOptions: Record<string, string> = {};
-      Object.entries(activeVariant?.attributes || {}).forEach(([key, value]) => {
-        if (value !== undefined && value !== "") {
-          initialOptions[key] = String(value);
-        }
-      });
+      Object.entries(activeVariant?.attributes || {}).forEach(
+        ([key, value]) => {
+          if (value !== undefined && value !== "") {
+            initialOptions[key] = String(value);
+          }
+        },
+      );
 
       setSelectedOptions(initialOptions);
       setQuantity(Math.max(1, Number(productData.minimumOrderQuantity || 1)));
@@ -1225,7 +1230,9 @@ export default function ProductDetailsScreen() {
     const diskCacheTask = (async () => {
       if (memoryCached) return;
       try {
-        const cachedValue = await AsyncStorage.getItem(getProductCacheKey(productId));
+        const cachedValue = await AsyncStorage.getItem(
+          getProductCacheKey(productId),
+        );
         if (requestId !== productLoadRequest.current || !cachedValue) return;
 
         const cachedProduct = JSON.parse(cachedValue) as Product;
@@ -1241,11 +1248,14 @@ export default function ProductDetailsScreen() {
 
     const apiTask = (async () => {
       try {
-        const response = await api.get(`/products/${encodeURIComponent(productId)}`);
+        const response = await api.get(
+          `/products/${encodeURIComponent(productId)}`,
+        );
         if (requestId !== productLoadRequest.current) return;
 
         const data = response.data;
-        const productData = data?.product || data?.data?.product || data?.data || data;
+        const productData =
+          data?.product || data?.data?.product || data?.data || data;
 
         if (!productData?._id || String(productData._id) !== productId) {
           throw new Error("Product not found.");
@@ -1263,14 +1273,19 @@ export default function ProductDetailsScreen() {
         });
       } catch (err: any) {
         if (requestId !== productLoadRequest.current) return;
-        console.error("PRODUCT DETAILS ERROR:", err?.response?.data || err?.message || err);
+        console.error(
+          "PRODUCT DETAILS ERROR:",
+          err?.response?.data || err?.message || err,
+        );
 
         // Wait for disk cache before showing an error; it may still have a usable copy.
         await diskCacheTask;
         if (requestId !== productLoadRequest.current) return;
 
         if (!productShown) {
-          setError("Unable to load product details. Check your connection and try again.");
+          setError(
+            "Unable to load product details. Check your connection and try again.",
+          );
           setLoading(false);
         }
       }
@@ -2003,15 +2018,80 @@ export default function ProductDetailsScreen() {
   const handleShare = async () => {
     if (!product?._id) return;
 
-    const productUrl = `https://odikart.in/products/${product._id}`;
+    // Keep this URL in sync with android.intentFilters pathPrefix in app.json.
+    // This HTTPS link opens the product in Odikart when Android App Links are verified.
+    const productUrl = `https://odikart.in/products/${encodeURIComponent(product._id)}`;
+    const shareMessage = `${product.title} — available on OdiKart\n\nView product: ${productUrl}`;
+
+    // Prefer the selected variant image, then the product gallery/thumbnail.
+    const imageUrl =
+      selectedVariant?.images?.[0] ||
+      product.media?.thumbnail ||
+      product.media?.images?.[0] ||
+      images?.[selectedImage] ||
+      "";
 
     try {
-      await Share.share({
+      if (imageUrl && FileSystem.cacheDirectory) {
+        const cleanImageUrl = imageUrl.split("?")[0].toLowerCase();
+        const extension = cleanImageUrl.endsWith(".png")
+          ? "png"
+          : cleanImageUrl.endsWith(".webp")
+            ? "webp"
+            : cleanImageUrl.endsWith(".gif")
+              ? "gif"
+              : "jpg";
+        const mimeType =
+          extension === "png"
+            ? "image/png"
+            : extension === "webp"
+              ? "image/webp"
+              : extension === "gif"
+                ? "image/gif"
+                : "image/jpeg";
+        const localPath = `${FileSystem.cacheDirectory}odikart-share-${product._id}.${extension}`;
+
+        let localUri = localPath;
+        const info = await FileSystem.getInfoAsync(localPath);
+
+        if (!info.exists) {
+          const download = await FileSystem.downloadAsync(imageUrl, localPath);
+          localUri = download.uri;
+        }
+
+        await Share.open({
+          title: product.title,
+          subject: `${product.title} on OdiKart`,
+          message: shareMessage,
+          url: localUri,
+          type: mimeType,
+          failOnCancel: false,
+          useInternalStorage: true,
+        });
+        return;
+      }
+
+      // If the product has no usable image URL, share the link instead.
+      await Share.open({
         title: product.title,
-        message: `${product.title}\n\nCheck this product on OdiKart:\n${productUrl}`,
+        subject: `${product.title} on OdiKart`,
+        message: shareMessage,
+        failOnCancel: false,
       });
-    } catch (err) {
-      console.log("SHARE ERROR:", err);
+    } catch (err: any) {
+      // Closing the native share sheet is a normal user action.
+      if (
+        String(err?.message ?? "")
+          .toLowerCase()
+          .includes("cancel")
+      )
+        return;
+
+      console.error("PRODUCT IMAGE SHARE ERROR:", err);
+      showNativeToast(
+        "Couldn't share the product image. Please try again.",
+        "Share failed",
+      );
     }
   };
 
@@ -3366,26 +3446,38 @@ export default function ProductDetailsScreen() {
           style={[styles.buyButton, isOutOfStock && styles.disabledBuyButton]}
           disabled={isOutOfStock || buyingNow}
           onPress={handleBuyNow}
+          accessibilityRole="button"
+          accessibilityLabel={isOutOfStock ? "Out of stock" : "Buy now"}
         >
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.purchaseShine,
-              styles.purchaseShineBuy,
-              purchaseShineStyle,
-            ]}
-          />
-          {buyingNow ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="flash-outline" size={20} color="#fff" />
-
-              <Text style={styles.buyButtonText}>
-                {isOutOfStock ? "Out of Stock" : "Buy Now"}
-              </Text>
-            </>
-          )}
+          <LinearGradient
+            colors={
+              isOutOfStock
+                ? ["#9CA3AF", "#6B7280", "#4B5563"]
+                : ["#2563EB", "#7C3AED", "#4F46E5"]
+            }
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={styles.buyButtonGradient}
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.purchaseShine,
+                styles.purchaseShineBuy,
+                purchaseShineStyle,
+              ]}
+            />
+            {buyingNow ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="flash-outline" size={20} color="#fff" />
+                <Text style={styles.buyButtonText}>
+                  {isOutOfStock ? "Out of Stock" : "Buy Now"}
+                </Text>
+              </>
+            )}
+          </LinearGradient>
         </Pressable>
       </View>
 
@@ -4937,11 +5029,21 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderRadius: 13,
     overflow: "hidden",
+    alignItems: "stretch",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+
+  buyButtonGradient: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 7,
-    backgroundColor: colors.primary,
   },
 
   disabledBuyButton: {

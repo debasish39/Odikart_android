@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+
+
+
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   ActivityIndicator,
@@ -14,8 +18,9 @@ import {
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import api from "../../api/api";
@@ -41,20 +46,80 @@ export default function EditProfileScreen() {
     message: string;
   } | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
+  const applyProfileToForm = useCallback((profile: any) => {
+    if (!profile) return;
 
-    setFirstName(user.firstName || "");
-    setLastName(user.lastName || "");
-    setPhone(user.phone || "");
-    setEmail(user.email || "");
-    setImageUri(
-      (user as any)?.image ||
-        (user as any)?.profileImage ||
-        (user as any)?.avatar ||
-        null,
-    );
-  }, [user]);
+    setFirstName(profile.firstName || "");
+    setLastName(profile.lastName || "");
+    setPhone(profile.phone || "");
+    setEmail(profile.email || "");
+
+    // The backend's safe user response uses `image`. Keep fallbacks for
+    // older account shapes used by other parts of the app.
+    const nextImage =
+      profile.image ||
+      profile.profileImage ||
+      profile.avatar ||
+      profile.profileImageUrl ||
+      null;
+
+    setImageUri(nextImage);
+  }, []);
+
+  // Load the latest saved profile every time this screen gains focus.
+  // `useAuth().user` can be stale after a profile update, so it should only
+  // be used as an immediate fallback while /auth/me refreshes from the DB.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      if (user) {
+        applyProfileToForm(user);
+      }
+
+      const loadLatestProfile = async () => {
+        try {
+          console.log("[PROFILE-DEBUG] Refreshing profile from /auth/me");
+          const response = await api.get("/auth/me");
+          const latestUser =
+            response.data?.user ||
+            response.data?.data?.user ||
+            response.data?.data ||
+            null;
+
+          if (active && latestUser) {
+            console.log("[PROFILE-DEBUG] Latest profile loaded:", {
+              hasEmail: Boolean(latestUser.email),
+              hasImage: Boolean(
+                latestUser.image ||
+                  latestUser.profileImage ||
+                  latestUser.avatar ||
+                  latestUser.profileImageUrl,
+              ),
+            });
+            applyProfileToForm(latestUser);
+          } else if (active) {
+            console.warn(
+              "[PROFILE-DEBUG] /auth/me returned no user; using auth context fallback.",
+            );
+          }
+        } catch (error: any) {
+          console.error("[PROFILE-DEBUG] Failed to refresh profile:", {
+            status: error?.response?.status,
+            message: error?.response?.data?.message || error?.message,
+            endpoint: "/auth/me",
+          });
+          // Keep the values from auth context if refresh fails.
+        }
+      };
+
+      void loadLatestProfile();
+
+      return () => {
+        active = false;
+      };
+    }, [user, applyProfileToForm]),
+  );
 
   const initials = useMemo(() => {
     const first = firstName.trim().charAt(0);
@@ -71,13 +136,23 @@ export default function EditProfileScreen() {
   };
 
   const pickProfileImage = async () => {
-    if (pickingImage) return;
+    if (pickingImage) {
+      console.warn("[PROFILE-DEBUG] Image picker ignored: already opening.");
+      return;
+    }
 
     try {
+      console.log("[PROFILE-DEBUG] Opening image picker.");
       setPickingImage(true);
 
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      console.log("[PROFILE-DEBUG] Media permission:", {
+        granted: permission.granted,
+        canAskAgain: permission.canAskAgain,
+        status: permission.status,
+      });
 
       if (!permission.granted) {
         showToast(
@@ -101,6 +176,15 @@ export default function EditProfileScreen() {
 
       const asset = result.assets[0];
 
+      console.log("[PROFILE-DEBUG] Image selected:", {
+        hasUri: Boolean(asset.uri),
+        fileName: asset.fileName ?? null,
+        fileSize: asset.fileSize ?? null,
+        mimeType: asset.mimeType ?? null,
+        width: asset.width,
+        height: asset.height,
+      });
+
       if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
         showToast(
           "error",
@@ -111,8 +195,9 @@ export default function EditProfileScreen() {
       }
 
       setImageUri(asset.uri);
+      console.log("[PROFILE-DEBUG] Image URI placed in state.");
     } catch (error) {
-      console.log("PROFILE IMAGE ERROR:", error);
+      console.error("[PROFILE-DEBUG] Image picker failed:", error);
       showToast("error", "Image error", "Unable to select this image.");
     } finally {
       setPickingImage(false);
@@ -138,18 +223,16 @@ export default function EditProfileScreen() {
       return false;
     }
 
-    const cleanPhone = phone.replace(/\D/g, "");
+    const cleanEmail = email.trim();
 
-    if (!cleanPhone) {
-      showToast("error", "Phone required", "Please enter your phone number.");
-      return false;
-    }
-
-    if (cleanPhone.length !== 10) {
+    if (
+      cleanEmail &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
+    ) {
       showToast(
         "error",
-        "Invalid phone number",
-        "Please enter a valid 10-digit phone number.",
+        "Invalid email",
+        "Please enter a valid email address.",
       );
       return false;
     }
@@ -158,7 +241,25 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (saving || !validate()) return;
+    console.log("[PROFILE-DEBUG] Save tapped:", {
+      alreadySaving: saving,
+      firstNameLength: firstName.trim().length,
+      lastNameLength: lastName.trim().length,
+      emailProvided: Boolean(email.trim()),
+      hasSelectedImage: Boolean(imageUri),
+    });
+
+    if (saving) {
+      console.warn(
+        "[PROFILE-DEBUG] Save ignored: request already in progress.",
+      );
+      return;
+    }
+
+    if (!validate()) {
+      console.warn("[PROFILE-DEBUG] Validation failed; API request not sent.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -167,7 +268,7 @@ export default function EditProfileScreen() {
 
       formData.append("firstName", firstName.trim());
       formData.append("lastName", lastName.trim());
-      formData.append("phone", phone.replace(/\D/g, ""));
+      formData.append("email", email.trim());
 
       const originalImage =
         (user as any)?.image ||
@@ -175,33 +276,97 @@ export default function EditProfileScreen() {
         (user as any)?.avatar ||
         null;
 
-      // Only upload when the selected image is different from the
-      // server image. Remote URLs should never be appended as files.
-      if (
+      const shouldUploadImage = Boolean(
         imageUri &&
         imageUri !== originalImage &&
         !imageUri.startsWith("http://") &&
-        !imageUri.startsWith("https://")
-      ) {
-        const extension = imageUri.split(".").pop()?.toLowerCase() || "jpg";
+        !imageUri.startsWith("https://"),
+      );
+
+      console.log("[PROFILE-DEBUG] Preparing request:", {
+        baseURL: api.defaults.baseURL ?? "(not set)",
+        endpoint: "/auth/update-profile",
+        method: "PUT",
+        // These are the fields actually sent below. Phone is intentionally excluded.
+        fields: ["firstName", "lastName", "email"],
+        shouldUploadImage,
+        imageUriType: !imageUri
+          ? "none"
+          : imageUri.startsWith("http://") || imageUri.startsWith("https://")
+            ? "remote-url"
+            : "local-file-uri",
+        contentType: "multipart/form-data",
+        // Never log auth headers or tokens here.
+      });
+
+      // Only upload when the selected image is different from the
+      // server image. Remote URLs should never be appended as files.
+      if (shouldUploadImage && imageUri) {
+        const pathWithoutQuery = imageUri.split("?")[0];
+        const extension =
+          pathWithoutQuery.split(".").pop()?.toLowerCase() || "jpg";
+        const safeExtension = ["jpg", "jpeg", "png", "webp"].includes(extension)
+          ? extension
+          : "jpg";
+        const mimeType =
+          safeExtension === "png"
+            ? "image/png"
+            : safeExtension === "webp"
+              ? "image/webp"
+              : "image/jpeg";
 
         formData.append("image", {
           uri: imageUri,
-          name: `profile-${Date.now()}.${extension}`,
-          type: extension === "png" ? "image/png" : "image/jpeg",
+          name: `profile-${Date.now()}.${safeExtension}`,
+          type: mimeType,
         } as any);
+
+        console.log("[PROFILE-DEBUG] Image attached to multipart request:", {
+          name: `profile-upload.${safeExtension}`,
+          mimeType,
+        });
+      } else {
+        console.log("[PROFILE-DEBUG] No image file attached.");
       }
 
+      console.log("[PROFILE-DEBUG] Sending PUT request.");
       const response = await api.put("/auth/update-profile", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
       });
 
+      console.log("[PROFILE-DEBUG] Response received:", {
+        status: response.status,
+        success: response.data?.success,
+        message: response.data?.message,
+        returnedUser: Boolean(response.data?.user),
+        returnedFields: response.data?.user
+          ? {
+              firstName: Boolean(response.data.user.firstName),
+              lastName: Boolean(response.data.user.lastName),
+              email: Boolean(response.data.user.email),
+              phoneIncluded: Object.prototype.hasOwnProperty.call(
+                response.data.user,
+                "phone",
+              ),
+              imageIncluded: Boolean(
+                response.data.user.image ||
+                  response.data.user.profileImage ||
+                  response.data.user.avatar,
+              ),
+            }
+          : null,
+      });
+
       const data = response.data;
 
       if (data?.success === false) {
         throw new Error(data?.message || "Unable to update profile.");
+      }
+
+      if (data?.user) {
+        applyProfileToForm(data.user);
       }
 
       showToast(
@@ -211,16 +376,29 @@ export default function EditProfileScreen() {
       );
 
       setTimeout(() => {
-        router.back();
+        // The screen may have been opened directly, with no back history.
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/(tabs)" as any);
+        }
       }, 700);
     } catch (error: any) {
-      console.log(
-        "UPDATE PROFILE ERROR:",
-        error?.response?.data || error?.message || error,
-      );
+      console.error("[PROFILE-DEBUG] Update request failed:", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.response?.status,
+        responseData: error?.response?.data,
+        responseHeaders: error?.response?.headers,
+        requestUrl: error?.config?.url,
+        requestMethod: error?.config?.method,
+        baseURL: error?.config?.baseURL ?? api.defaults.baseURL,
+        // Deliberately do not print request headers; they may contain tokens.
+      });
 
       const message =
         error?.response?.data?.message ||
+        error?.response?.data?.error ||
         error?.message ||
         "Unable to update your profile.";
 
@@ -254,7 +432,13 @@ export default function EditProfileScreen() {
         {/* HEADER */}
         <View style={styles.header}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)" as any);
+              }
+            }}
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.pressed,
@@ -346,24 +530,24 @@ export default function EditProfileScreen() {
               label="Email address"
               icon="mail-outline"
               value={email}
+              onChangeText={setEmail}
               placeholder="Your email address"
-              editable={false}
+              editable={!saving}
               keyboardType="email-address"
+              autoCapitalize="none"
               last={false}
-              helper="Email address cannot be changed here"
+              helper="You can update your email address here"
             />
 
             <InputField
               label="Phone number"
               icon="call-outline"
               value={phone}
-              onChangeText={(value) =>
-                setPhone(value.replace(/\D/g, "").slice(0, 10))
-              }
-              placeholder="10-digit phone number"
-              editable={!saving}
+              placeholder="Phone number cannot be changed here"
+              editable={false}
               keyboardType="phone-pad"
               last
+              helper="Your phone number is kept unchanged for account security"
             />
           </View>
 
@@ -398,21 +582,28 @@ export default function EditProfileScreen() {
               saving && styles.saveDisabled,
             ]}
           >
-            {saving ? (
-              <>
-                <ActivityIndicator color={colors.textWhite} size="small" />
-                <Text style={styles.saveText}>Saving changes...</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={21}
-                  color={colors.textWhite}
-                />
-                <Text style={styles.saveText}>Save Changes</Text>
-              </>
-            )}
+            <LinearGradient
+              colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.saveButtonGradient}
+            >
+              {saving ? (
+                <>
+                  <ActivityIndicator color={colors.textWhite} size="small" />
+                  <Text style={styles.saveText}>Saving changes...</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={21}
+                    color={colors.textWhite}
+                  />
+                  <Text style={styles.saveText}>Save Changes</Text>
+                </>
+              )}
+            </LinearGradient>
           </Pressable>
 
           <Text style={styles.footerText}>
@@ -749,11 +940,17 @@ const styles = StyleSheet.create({
   saveButton: {
     height: 54,
     borderRadius: 16,
+    overflow: "hidden",
+  },
+
+  saveButtonGradient: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: colors.primary,
+    borderRadius: 16,
+    paddingHorizontal: 16,
   },
 
   savePressed: {
