@@ -1,4 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">OdiKart</string>
-  <string name="expo_system_ui_user_interface_style" translatable="false">automatic</string>
+
+    <string name="app_name">OdiKart</string>
+
+    <string name="expo_system_ui_user_interface_style" translatable="false">
+        automatic
+    </string>
+
+    <!-- Cart Shortcut -->
+    <string name="shortcut_cart_short">View Cart</string>
+    <string name="shortcut_cart_long">View Cart</string>
+
+    <!-- Wishlist Shortcut -->
+    <string name="shortcut_wishlist_short">Wishlist</string>
+    <string name="shortcut_wishlist_long">Open Wishlist</string>
+
+    <!-- Orders Shortcut -->
+    <string name="shortcut_orders_short">View Orders</string>
+    <string name="shortcut_orders_long">View Orders</string>
+
 </resources>

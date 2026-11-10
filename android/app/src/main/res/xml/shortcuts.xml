@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Cart Shortcut -->
+    <shortcut
+        android:shortcutId="cart"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_cart_short"
+        android:shortcutLongLabel="@string/shortcut_cart_long">
+
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="in.odikart.app"
+            android:targetClass="in.odikart.app.MainActivity"
+            android:data="odikart://cart"/>
+    </shortcut>
+
+    <!-- Wishlist Shortcut -->
+    <shortcut
+        android:shortcutId="wishlist"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_wishlist_short"
+        android:shortcutLongLabel="@string/shortcut_wishlist_long">
+
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="in.odikart.app"
+            android:targetClass="in.odikart.app.MainActivity"
+            android:data="odikart://wishlist"/>
+    </shortcut>
+
+    <!-- Orders Shortcut -->
+    <shortcut
+        android:shortcutId="orders"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_orders_short"
+        android:shortcutLongLabel="@string/shortcut_orders_long">
+
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="in.odikart.app"
+            android:targetClass="in.odikart.app.MainActivity"
+            android:data="odikart://orders/orders"/>
+    </shortcut>
+
+</shortcuts>
