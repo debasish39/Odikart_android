@@ -142,12 +142,12 @@ export default function OdikartSplashScreen() {
 
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <LinearGradient
-          colors={["#FFFFFF", "#F8F9FF", "#F4F0FF"]}
+          colors={["#FFFFFF", "#F2F4FF", "#EDE9FE"]}
           locations={[0, 0.58, 1]}
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Soft side artwork: abstract shopping-inspired shapes, kept away from the logo. */}
+        {/* Soft side artwork in OdiKart indigo, purple and blue tones, kept away from the logo. */}
         <View style={[styles.sideGlow, styles.glowTopLeft]} />
         <View style={[styles.sideGlow, styles.glowBottomRight]} />
         <View style={[styles.sideRing, styles.ringLeft]} />
@@ -265,12 +265,12 @@ const styles = StyleSheet.create({
   glowTopLeft: {
     top: -90,
     left: -100,
-    backgroundColor: "rgba(66,99,235,0.08)",
+    backgroundColor: "rgba(59,130,246,0.10)",
   },
   glowBottomRight: {
     bottom: -75,
     right: -100,
-    backgroundColor: "rgba(128,85,232,0.09)",
+    backgroundColor: "rgba(124,58,237,0.11)",
   },
   sideRing: {
     position: "absolute",
@@ -278,7 +278,7 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 90,
     borderWidth: 1,
-    borderColor: "rgba(128,85,232,0.12)",
+    borderColor: "rgba(124,58,237,0.15)",
   },
   ringLeft: {
     left: -130,
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 110,
-    borderColor: "rgba(66,99,235,0.10)",
+    borderColor: "rgba(59,130,246,0.13)",
   },
   artCluster: {
     position: "absolute",
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     height: 76,
     left: 18,
     top: 16,
-    backgroundColor: "rgba(66,99,235,0.13)",
+    backgroundColor: "rgba(59,130,246,0.15)",
     transform: [{ rotate: "-18deg" }],
   },
   blobLavender: {
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
     left: 48,
     top: 48,
     borderRadius: 22,
-    backgroundColor: "rgba(128,85,232,0.16)",
+    backgroundColor: "rgba(124,58,237,0.17)",
     transform: [{ rotate: "24deg" }],
   },
   blobPeach: {
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
     height: 70,
     left: 22,
     top: 20,
-    backgroundColor: "rgba(245,145,110,0.15)",
+    backgroundColor: "rgba(79,70,229,0.14)",
     transform: [{ rotate: "16deg" }],
   },
   blobMint: {
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     left: 48,
     top: 54,
     borderRadius: 22,
-    backgroundColor: "rgba(37,168,137,0.15)",
+    backgroundColor: "rgba(99,102,241,0.16)",
     transform: [{ rotate: "-22deg" }],
   },
   artLine: {
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     width: 70,
     height: 2,
     borderRadius: 2,
-    backgroundColor: "rgba(66,99,235,0.25)",
+    backgroundColor: "rgba(59,130,246,0.28)",
     transform: [{ rotate: "-25deg" }],
   },
   artLineRight: {
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
     width: 68,
     height: 2,
     borderRadius: 2,
-    backgroundColor: "rgba(37,168,137,0.25)",
+    backgroundColor: "rgba(124,58,237,0.25)",
     transform: [{ rotate: "22deg" }],
   },
   artDot: {
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
   dotBlue: {
     top: 7,
     left: 78,
-    backgroundColor: "#4263EB",
+    backgroundColor: "#3B82F6",
   },
   dotViolet: {
     bottom: 12,
@@ -380,12 +380,12 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#8055E8",
+    backgroundColor: "#7C3AED",
   },
   dotMint: {
     top: 9,
     right: 20,
-    backgroundColor: "#25A889",
+    backgroundColor: "#6366F1",
   },
   dotPeach: {
     bottom: 8,
@@ -393,14 +393,14 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#F1916E",
+    backgroundColor: "#4F46E5",
   },
   pulseDot: {
     position: "absolute",
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "#4263EB",
+    backgroundColor: "#3B82F6",
     top: "27%",
     right: "18%",
   },
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#8055E8",
+    backgroundColor: "#7C3AED",
     bottom: "30%",
     left: "17%",
   },
@@ -422,10 +422,10 @@ const styles = StyleSheet.create({
   eyebrowLine: {
     width: 20,
     height: 1,
-    backgroundColor: "#C9CBE1",
+    backgroundColor: "#C7D2FE",
   },
   eyebrowText: {
-    color: "#777B91",
+    color: "#6366A1",
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 2,
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
   },
   tagline: {
     marginTop: 4,
-    color: "#515574",
+    color: "#4B4F78",
     fontSize: 13,
     fontWeight: "500",
     textAlign: "center",
@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   benefitText: {
-    color: "#72758D",
+    color: "#62658A",
     fontSize: 11,
     fontWeight: "600",
   },
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 4,
     borderRadius: 4,
-    backgroundColor: "#E8E9F3",
+    backgroundColor: "#E0E7FF",
     overflow: "hidden",
   },
   loadingFill: {

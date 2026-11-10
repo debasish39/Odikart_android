@@ -129,7 +129,18 @@ function AppContent() {
           headerShown: false,
           contentStyle: { backgroundColor: "#F8FAFC" },
         }}
-      />
+      >
+        {/* Render login as a transparent route above the screen that opened it. */}
+        <Stack.Screen
+          name="login-modal"
+          options={{
+            presentation: "transparentModal",
+            animation: "fade",
+            gestureEnabled: true,
+            contentStyle: { backgroundColor: "transparent" },
+          }}
+        />
+      </Stack>
     </>
   );
 }

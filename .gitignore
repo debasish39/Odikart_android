@@ -40,6 +40,5 @@ example
 
 # generated native folders
 /ios
-/android
 credentials.json
 android/keystores/

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1084141043834",
+    "project_id": "odikart",
+    "storage_bucket": "odikart.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1084141043834:android:cace46f72067f3db857bc3",
+        "android_client_info": {
+          "package_name": "in.odikart.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBeqC0VMb1faPX7mFWKJUVdXN7a-O6p3fE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
@@ -175,6 +169,23 @@ const BANNERS = [
   },
 ];
 
+type HomeBanner = {
+  id: string;
+  title: string;
+  sub: string;
+  tagline: string;
+  cta: string;
+  label: string;
+  imageUrl?: string;
+  source?: any;
+  raw?: any;
+};
+
+const FALLBACK_HOME_BANNERS: HomeBanner[] = BANNERS.map((banner) => ({
+  ...banner,
+  source: banner.source,
+}));
+
 const BANNER_INTERVAL = 4500;
 const TILE_TINTS = [
   "#FFF1DE",
@@ -234,7 +245,7 @@ type Variant = {
 type Product = {
   _id: string;
   title: string;
-  brand?: string;
+  brand?: any;
   category?: any;
   subCategory?: any;
   createdAt?: string;
@@ -254,7 +265,87 @@ type Product = {
   isLowStock?: boolean;
 };
 
-type Category = { _id: string; name: string; image?: string; icon?: string };
+type Category = {
+  _id: string;
+  name: string;
+  image?: string | { url?: string; secure_url?: string };
+  icon?: string;
+};
+
+const getCategoryImageUrl = (value: Category["image"]): string | undefined => {
+  const candidate =
+    typeof value === "string"
+      ? value
+      : value && typeof value === "object"
+        ? value.secure_url || value.url
+        : undefined;
+  const url = typeof candidate === "string" ? candidate.trim() : "";
+  return /^https?:\/\//i.test(url) ? url : undefined;
+};
+
+function CategoryHomeTile({
+  category,
+  index,
+  onPress,
+}: {
+  category: Category;
+  index: number;
+  onPress: () => void;
+}) {
+  const imageUrl = getCategoryImageUrl(category.image);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageUrl]);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        s.catItem,
+        pressed && { opacity: 0.88, transform: [{ scale: 0.96 }] },
+      ]}
+      android_ripple={{
+        color: "rgba(58,47,184,0.10)",
+        borderless: false,
+      }}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Shop ${category.name}`}
+    >
+      <View
+        style={[
+          s.catTile,
+          { backgroundColor: TILE_TINTS[index % TILE_TINTS.length] },
+        ]}
+      >
+        {imageUrl && !imageFailed ? (
+          <Image
+            key={imageUrl}
+            source={{ uri: imageUrl }}
+            style={s.catImage}
+            resizeMode="cover"
+            onError={() => setImageFailed(true)}
+            accessibilityLabel={`${category.name} category`}
+          />
+        ) : (
+          <Text style={s.catFallbackIcon}>{category.icon || "🛍️"}</Text>
+        )}
+      </View>
+      <Text style={s.catName} numberOfLines={2} ellipsizeMode="tail">
+        {category.name}
+      </Text>
+    </Pressable>
+  );
+}
+
+type SubCategory = {
+  _id: string;
+  name: string;
+  image?: string;
+  icon?: string;
+  isActive?: boolean;
+};
 
 type LocationResult = {
   place_id: number;
@@ -493,7 +584,7 @@ function SectionHeader({
         </Text>
         {subtitle ? <Text style={s.sectionSubtitle}>{subtitle}</Text> : null}
       </View>
-      {onSeeAll ? (
+      {/* {onSeeAll ? (
         <Pressable
           onPress={onSeeAll}
           hitSlop={10}
@@ -504,7 +595,7 @@ function SectionHeader({
           <Text style={s.seeAllText}>View All</Text>
           <Ionicons name="chevron-forward" size={14} color={C.brand} />
         </Pressable>
-      ) : null}
+      ) : null} */}
     </View>
   );
 }
@@ -573,8 +664,10 @@ function CategoryGridSkeleton() {
         </View>
         <Skeleton width={62} height={12} radius={5} />
       </View>
-      <View
-        style={s.catGrid}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.catGrid}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
@@ -591,7 +684,7 @@ function CategoryGridSkeleton() {
             />
           </View>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -786,8 +879,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
   );
 
   const imageKeyExtractor = useCallback(
-    (_uri: string, index: number) =>
-      `${product._id}-card-image-${index}`,
+    (_uri: string, index: number) => `${product._id}-card-image-${index}`,
     [product._id],
   );
 
@@ -852,7 +944,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
       <View
         style={[s.cardImageWrap, { width: imageSize, height: imageHeight }]}
       >
-           {images.length > 0 ? (
+        {images.length > 0 ? (
           <ScrollView
             ref={cardGalleryRef}
             key={`${product._id}-gallery-${images.length}`}
@@ -918,7 +1010,18 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
           </View>
         )}
 
-      
+        {images.length > 1 ? (
+          <View
+            pointerEvents="none"
+            style={s.imageCountBadge}
+            accessibilityLabel={`Image ${activeImageIndex + 1} of ${images.length}`}
+          >
+            <Text style={s.imageCountText}>
+              {activeImageIndex + 1} / {images.length}
+            </Text>
+          </View>
+        ) : null}
+
         {discount > 0 ? (
           <View style={s.discountBadge}>
             <Text style={s.discountBadgeText}>{Math.round(discount)}% OFF</Text>
@@ -1183,13 +1286,116 @@ export default function HomeScreen() {
   const [recent, setRecent] = useState<string[]>([]);
   const [sort, setSort] = useState<SortKey>("relevance");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<
+    "category" | "subcategory" | "brand" | "price" | "sort"
+  >("category");
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [allProductsOffset, setAllProductsOffset] = useState(0);
   const [selectedSubCategory, setSelectedSubCategory] = useState("All");
+  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  const [subCategoriesLoading, setSubCategoriesLoading] = useState(false);
   const [selectedBrand, setSelectedBrand] = useState("All");
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [minPriceInput, setMinPriceInput] = useState("0");
   const [maxPriceInput, setMaxPriceInput] = useState("5000");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Load subcategories from the backend instead of deriving them from the
+  // currently loaded/paginated products.
+  useEffect(() => {
+    if (!filterOpen) return;
+
+    let isActive = true;
+
+    const loadSubCategories = async () => {
+      setSubCategoriesLoading(true);
+
+      try {
+        const categoryIds =
+          selectedCategory === "All"
+            ? categories.map((item) => String(item._id)).filter(Boolean)
+            : [selectedCategory];
+
+        if (categoryIds.length === 0) {
+          if (isActive) setSubCategories([]);
+          return;
+        }
+
+        const responses = await Promise.all(
+          categoryIds.map(async (categoryId) => {
+            try {
+              const response = await api.get(
+                `/category/${encodeURIComponent(categoryId)}/subcategories`,
+              );
+              const result = response?.data;
+
+              const list =
+                result?.subCategories ??
+                result?.subcategories ??
+                result?.data?.subCategories ??
+                result?.data?.subcategories ??
+                result?.data ??
+                (Array.isArray(result) ? result : []);
+
+              return Array.isArray(list) ? list : [];
+            } catch (requestError: any) {
+              console.log("========== SUBCATEGORY API ERROR ==========");
+              console.log("Category ID:", categoryId);
+              console.log("Request URL:", requestError?.config?.baseURL);
+              console.log("Request Path:", requestError?.config?.url);
+              console.log("Error Message:", requestError?.message);
+              console.log("Response:", requestError?.response?.data);
+              console.log("Status:", requestError?.response?.status);
+              console.log("============================================");
+
+              return [];
+            }
+          }),
+        );
+
+        const unique = new Map<string, SubCategory>();
+
+        responses.flat().forEach((item: any) => {
+          if (item?._id && item?.name && item?.isActive !== false) {
+            unique.set(String(item._id), {
+              _id: String(item._id),
+              name: String(item.name),
+              image:
+                typeof item.image === "string"
+                  ? item.image
+                  : typeof item.image?.url === "string"
+                    ? item.image.url
+                    : undefined,
+              icon: typeof item.icon === "string" ? item.icon : undefined,
+              isActive: item.isActive,
+            });
+          }
+        });
+
+        if (isActive) {
+          setSubCategories(
+            Array.from(unique.values()).sort((a, b) =>
+              a.name.localeCompare(b.name),
+            ),
+          );
+        }
+      } catch (requestError: any) {
+        console.error(
+          "LOAD SUBCATEGORIES ERROR:",
+          requestError?.response?.data || requestError?.message,
+        );
+        if (isActive) setSubCategories([]);
+      } finally {
+        if (isActive) setSubCategoriesLoading(false);
+      }
+    };
+
+    void loadSubCategories();
+
+    return () => {
+      isActive = false;
+    };
+  }, [filterOpen, selectedCategory, categories]);
 
   // Cycle through helpful search examples while the search field is idle.
   // Pause the animation while the shopper types or focuses the input.
@@ -1406,11 +1612,113 @@ export default function HomeScreen() {
     return () => loop.stop();
   }, [shine, reduceMotion]);
 
-  /* ---------- banner carousel ---------- */
+  /* ---------- dynamic banner carousel ---------- */
   const bannerRef = useRef<ScrollView>(null);
   const bannerIndexRef = useRef(0);
   const bannerTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const impressedBannerIds = useRef<Set<string>>(new Set());
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [homeBanners, setHomeBanners] = useState<HomeBanner[]>(
+    FALLBACK_HOME_BANNERS,
+  );
+
+  // Fetch only banners eligible for the Home main placement.
+  const loadHomeBanners = useCallback(async () => {
+    try {
+      const response = await api.get("/banners", {
+        params: { placement: "home_main" },
+      });
+      const payload = response?.data;
+      const list =
+        payload?.banners ??
+        payload?.data?.banners ??
+        payload?.data?.data?.banners ??
+        payload?.data ??
+        payload;
+
+      if (!Array.isArray(list)) {
+        console.log("HOME BANNERS: Unexpected API response format:", payload);
+        return;
+      }
+
+      const now = Date.now();
+
+      // Match the MongoDB banner schema and enforce eligibility on the client
+      // as a safeguard. The public API should already apply these filters.
+      const normalized: HomeBanner[] = list
+        .filter((item: any) => {
+          if (!item?._id) return false;
+          if (item.isActive !== true) return false;
+          if (item.placement && item.placement !== "home_main") return false;
+
+          const startTime = item.startDate
+            ? new Date(item.startDate).getTime()
+            : null;
+          const endTime = item.endDate
+            ? new Date(item.endDate).getTime()
+            : null;
+
+          if (
+            startTime !== null &&
+            Number.isFinite(startTime) &&
+            startTime > now
+          )
+            return false;
+          if (endTime !== null && Number.isFinite(endTime) && endTime < now)
+            return false;
+          if (startTime !== null && !Number.isFinite(startTime)) return false;
+          if (endTime !== null && !Number.isFinite(endTime)) return false;
+
+          return true;
+        })
+        .sort(
+          (a: any, b: any) => Number(b.priority ?? 0) - Number(a.priority ?? 0),
+        )
+        .map((item: any) => {
+          const mobileImageUrl =
+            typeof item.mobileImage === "string"
+              ? item.mobileImage
+              : item.mobileImage?.url;
+          const desktopImageUrl =
+            typeof item.image === "string" ? item.image : item.image?.url;
+          const imageUrl =
+            mobileImageUrl ||
+            desktopImageUrl ||
+            item.imageUrl ||
+            item.bannerImage;
+
+          const title = item.title || "Discover more on OdiKart";
+          const subtitle = item.subtitle || "Explore offers picked for you";
+
+          return {
+            id: String(item._id),
+            title,
+            sub: subtitle,
+            tagline: item.tagline || "",
+            cta: item.buttonText || "Shop Now",
+            label: `${title}. ${subtitle}`,
+            imageUrl: typeof imageUrl === "string" ? imageUrl : undefined,
+            raw: item,
+          };
+        })
+        .filter((banner: HomeBanner) => Boolean(banner.imageUrl));
+
+      // An empty API result means no active, eligible Home banners exist.
+      setHomeBanners(normalized);
+      bannerIndexRef.current = 0;
+      setBannerIndex(0);
+      bannerRef.current?.scrollTo({ x: 0, animated: false });
+    } catch (error: any) {
+      console.log(
+        "HOME BANNERS API ERROR:",
+        error?.response?.data || error?.message,
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHomeBanners();
+  }, [loadHomeBanners]);
 
   const stopBannerAuto = () => {
     if (bannerTimer.current) clearInterval(bannerTimer.current);
@@ -1419,20 +1727,79 @@ export default function HomeScreen() {
 
   const startBannerAuto = () => {
     stopBannerAuto();
-    if (reduceMotion) return;
+    if (reduceMotion || homeBanners.length < 2) return;
     bannerTimer.current = setInterval(() => {
       if (!bannerRef.current) return;
-      const next = (bannerIndexRef.current + 1) % BANNERS.length;
+      const next = (bannerIndexRef.current + 1) % homeBanners.length;
       bannerIndexRef.current = next;
       setBannerIndex(next);
       bannerRef.current.scrollTo({ x: next * screenWidth, animated: true });
     }, BANNER_INTERVAL);
   };
 
+  // Count each banner impression once per Home screen session.
+  useEffect(() => {
+    const banner = homeBanners[bannerIndex];
+    if (!banner?.raw?._id || impressedBannerIds.current.has(banner.id)) return;
+
+    impressedBannerIds.current.add(banner.id);
+    void api.post(`/banners/${banner.id}/impression`).catch((error: any) => {
+      console.log(
+        "BANNER IMPRESSION ERROR:",
+        error?.response?.status ?? error?.message,
+      );
+    });
+  }, [bannerIndex, homeBanners]);
+
+  const handleBannerPress = (banner: HomeBanner) => {
+    const raw = banner.raw;
+
+    if (raw?._id) {
+      void api.post(`/banners/${banner.id}/click`).catch((error: any) => {
+        console.log(
+          "BANNER CLICK ERROR:",
+          error?.response?.status ?? error?.message,
+        );
+      });
+    } else {
+      // Preserve the original destination for the local fallback banners.
+      router.push("/(tabs)/categories");
+      return;
+    }
+
+    const redirectType = raw?.redirectType || "none";
+    const redirectId = raw?.redirectId ? String(raw.redirectId) : "";
+    const redirectUrl = raw?.redirectUrl;
+
+    if (redirectType === "product" && redirectId) {
+      router.push({ pathname: "/products/[id]", params: { id: redirectId } });
+    } else if (redirectType === "category" && redirectId) {
+      router.push({
+        pathname: "/(tabs)/categories",
+        params: { categoryId: redirectId },
+      });
+    } else if (redirectType === "collection" && redirectId) {
+      router.push({
+        pathname: "/(tabs)/categories",
+        params: { collectionId: redirectId },
+      });
+    } else if (redirectType === "url" && typeof redirectUrl === "string") {
+      if (/^https?:\/\//i.test(redirectUrl)) {
+        void Linking.openURL(redirectUrl).catch((error) =>
+          console.log("BANNER REDIRECT ERROR:", error),
+        );
+      }
+    } else if (redirectType === "none") {
+      return;
+    } else {
+      router.push("/(tabs)/categories");
+    }
+  };
+
   useEffect(() => {
     startBannerAuto();
     return stopBannerAuto;
-  }, [screenWidth, reduceMotion]);
+  }, [screenWidth, reduceMotion, homeBanners.length]);
 
   // The carousel unmounts while searching, so start from the first banner again.
   useEffect(() => {
@@ -1688,13 +2055,25 @@ export default function HomeScreen() {
 
     try {
       const data = await getCategories();
-      const loadedCategories: Category[] = Array.isArray(data?.categories)
+      const categoryRows = Array.isArray(data?.categories)
         ? data.categories
         : Array.isArray(data?.data?.categories)
           ? data.data.categories
           : Array.isArray(data)
             ? data
             : [];
+      const loadedCategories: Category[] = categoryRows
+        .filter((item: any) => item?._id && item?.name)
+        .map((item: any) => ({
+          _id: String(item._id),
+          name: String(item.name).trim(),
+          image:
+            typeof item.image === "string" || item.image == null
+              ? item.image
+              : item.image?.secure_url || item.image?.url,
+          icon: typeof item.icon === "string" ? item.icon : undefined,
+        }))
+        .filter((item: Category) => Boolean(item.name));
       homeCategoriesCache = loadedCategories;
       setCategories(loadedCategories);
       await writeHomeCache(HOME_CATEGORIES_STORAGE_KEY, loadedCategories);
@@ -1711,6 +2090,7 @@ export default function HomeScreen() {
 
   const syncCart = async () => {
     if (!isAuthenticated) {
+      cartItemsRef.current = [];
       setCartItems([]);
       setCartCount(0);
       setCartPreview([]);
@@ -1778,21 +2158,44 @@ export default function HomeScreen() {
   const loadSavedAddresses = async () => {
     try {
       setSavedLoading(true);
+
       const res = await getMyAddresses();
-      const data = res?.data as
-        | Address[]
-        | { addresses?: Address[] }
-        | undefined;
-      const list = (
-        Array.isArray(data) ? data : (data?.addresses ?? [])
-      ).filter((a: Address) => !a.isDeleted);
+
+      console.log("RAW SAVED ADDRESS RESPONSE:", res);
+
+      const candidates = [
+        res?.addresses,
+        res?.data,
+        res?.data?.addresses,
+        res?.data?.data?.addresses,
+        res?.data?.data,
+      ];
+
+      const rawAddresses = candidates.find((item) => Array.isArray(item));
+
+      const list: Address[] = (rawAddresses ?? []).filter(
+        (address: Address) =>
+          address && address._id && address.isDeleted !== true,
+      );
+
+      console.log("TOTAL ADDRESSES RECEIVED:", rawAddresses?.length ?? 0);
+      console.log("TOTAL ADDRESSES DISPLAYED:", list.length);
+
       setSavedAddresses(list);
+
       if (selectedLocation === "Select location") {
-        const def = list.find((a: Address) => a.isDefault);
-        if (def) setSelectedLocation(formatAddressShort(def));
+        const defaultAddress = list.find((address) => address.isDefault);
+
+        if (defaultAddress) {
+          setSelectedLocation(formatAddressShort(defaultAddress));
+        }
       }
-    } catch (e) {
-      console.log("SAVED ADDRESS LOAD ERROR:", e);
+    } catch (error: any) {
+      console.log(
+        "SAVED ADDRESS LOAD ERROR:",
+        error?.response?.data || error?.message || error,
+      );
+
       setSavedAddresses([]);
       showToast("Couldn't load saved addresses.", "error");
     } finally {
@@ -1811,8 +2214,17 @@ export default function HomeScreen() {
     return () => clearTimeout(t);
   }, [search]);
 
+  // Refresh cart whenever Home becomes visible again.
+  // Home can remain mounted behind Checkout/Order screens, so an auth-only
+  // useEffect would keep showing the previous cart count after an order.
+  useFocusEffect(
+    useCallback(() => {
+      void loadHeaderCounts();
+      return undefined;
+    }, [isAuthenticated]),
+  );
+
   useEffect(() => {
-    loadHeaderCounts();
     loadWishlist();
   }, [isAuthenticated]);
 
@@ -2462,7 +2874,7 @@ export default function HomeScreen() {
       >
         <StatusBar
           style="light"
-          backgroundColor={C.brandDark}
+          backgroundColor="#ffffff"
           translucent={false}
         />
         <View style={s.offlineContent}>
@@ -2521,33 +2933,41 @@ export default function HomeScreen() {
     value && typeof value === "object"
       ? String(value.name || "")
       : String(value || "");
+  // Build brand cards from the products currently available. If the API sends
+  // a brand object, use its logo/image; otherwise use a representative product image.
   const uniqueBrands = Array.from(
-    new Set(products.map((p) => String(p.brand || "").trim()).filter(Boolean)),
-  ).sort((a, b) => a.localeCompare(b));
-  const uniqueSubCategories = Array.from(
-    new Map(
-      products
-        .filter(
-          (p) =>
-            selectedCategory === "All" ||
-            getRefId(p.category) === selectedCategory,
-        )
-        .filter((p) => p.subCategory)
-        .map((p) => [
-          getRefId(p.subCategory),
-          {
-            id: getRefId(p.subCategory),
-            name: getRefName(p.subCategory) || "Subcategory",
-          },
-        ])
-        .filter(([id]) => Boolean(id)) as any,
-    ).values(),
-  );
+    products
+      .reduce((map, product) => {
+        const rawBrand: any = product.brand;
+        const name = String(
+          rawBrand && typeof rawBrand === "object"
+            ? rawBrand.name || rawBrand.title || ""
+            : rawBrand || "",
+        ).trim();
+        if (!name) return map;
+        const brandImage =
+          (rawBrand &&
+            typeof rawBrand === "object" &&
+            (rawBrand.logo?.url ||
+              rawBrand.logo ||
+              rawBrand.image?.url ||
+              rawBrand.image)) ||
+          productImage(product);
+        if (!map.has(name))
+          map.set(name, {
+            name,
+            image: typeof brandImage === "string" ? brandImage : undefined,
+          });
+        return map;
+      }, new Map<string, { name: string; image?: string }>())
+      .values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
   const activeFilterCount =
     (selectedCategory !== "All" ? 1 : 0) +
     (selectedSubCategory !== "All" ? 1 : 0) +
     (selectedBrand !== "All" ? 1 : 0) +
-    (priceRange[0] !== 0 || priceRange[1] !== 5000 ? 1 : 0);
+    (priceRange[0] !== 0 || priceRange[1] !== 5000 ? 1 : 0) +
+    (sort !== "relevance" ? 1 : 0);
   const filteredResults = products.filter((p) => {
     if (selectedCategory !== "All" && getRefId(p.category) !== selectedCategory)
       return false;
@@ -2558,13 +2978,35 @@ export default function HomeScreen() {
       return false;
     if (
       selectedBrand !== "All" &&
-      String(p.brand || "").toLowerCase() !== selectedBrand.toLowerCase()
+      String(
+        p.brand && typeof p.brand === "object"
+          ? p.brand.name || p.brand.title || ""
+          : p.brand || "",
+      ).toLowerCase() !== selectedBrand.toLowerCase()
     )
       return false;
     const price = productPrice(p);
     return price >= priceRange[0] && price <= priceRange[1];
   });
   const sortedResults = sortProducts(filteredResults, sort);
+
+  // Open the selected category's products directly from the Home category rail.
+  const openCategoryProducts = (category: Category) => {
+    setSelectedCategory(String(category._id));
+    setSelectedSubCategory("All");
+    setSelectedBrand("All");
+    setPriceRange([0, 5000]);
+    setMinPriceInput("0");
+    setMaxPriceInput("5000");
+    setVisibleCount(PAGE_SIZE);
+    setFilterOpen(false);
+    requestAnimationFrame(() => {
+      mainRef.current?.scrollTo({
+        y: Math.max(0, allProductsOffset - stickySearchHeight),
+        animated: true,
+      });
+    });
+  };
   const locationLabel =
     selectedLocation === "Select location"
       ? "Choose delivery location"
@@ -2888,107 +3330,112 @@ export default function HomeScreen() {
           ) : (
             <>
               {/* Banner carousel on a header-to-page gradient */}
-              <LinearGradient
-                colors={[C.brand, "#7B70E6", C.bg]}
-                locations={[0, 0.62, 1]}
-                style={s.bannerBackdrop}
-              >
-                <ScrollView
-                  ref={bannerRef}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  scrollEventThrottle={16}
-                  onScrollBeginDrag={stopBannerAuto}
-                  onMomentumScrollEnd={(e) => {
-                    const i = Math.round(
-                      e.nativeEvent.contentOffset.x / screenWidth,
-                    );
-                    bannerIndexRef.current = i;
-                    setBannerIndex(i);
-                    startBannerAuto();
-                  }}
+              {homeBanners.length > 0 ? (
+                <LinearGradient
+                  colors={[C.brand, "#7B70E6", C.bg]}
+                  locations={[0, 0.62, 1]}
+                  style={s.bannerBackdrop}
                 >
-                  {BANNERS.map((b) => (
-                    <View
-                      key={b.id}
-                      style={{ width: screenWidth, paddingHorizontal: GUTTER }}
-                    >
-                      <Pressable
-                        style={({ pressed }) => [
-                          s.banner,
-                          pressed && { opacity: 0.96 },
-                        ]}
-                        onPress={() => router.push("/(tabs)/categories")}
-                        accessibilityRole="button"
-                        accessibilityLabel={b.label}
+                  <ScrollView
+                    ref={bannerRef}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    scrollEventThrottle={16}
+                    onScrollBeginDrag={stopBannerAuto}
+                    onMomentumScrollEnd={(e) => {
+                      const i = Math.round(
+                        e.nativeEvent.contentOffset.x / screenWidth,
+                      );
+                      bannerIndexRef.current = i;
+                      setBannerIndex(i);
+                      startBannerAuto();
+                    }}
+                  >
+                    {homeBanners.map((b) => (
+                      <View
+                        key={b.id}
+                        style={{
+                          width: screenWidth,
+                          paddingHorizontal: GUTTER,
+                        }}
                       >
-                        <Image
-                          source={b.source}
-                          style={s.bannerImage}
-                          resizeMode="cover"
-                          onError={(e) =>
-                            console.log(
-                              "BANNER IMAGE ERROR:",
-                              b.id,
-                              e.nativeEvent,
-                            )
-                          }
-                        />
-                        <LinearGradient
-                          colors={[
-                            "rgba(24,18,110,0.88)",
-                            "rgba(24,18,110,0.45)",
-                            "rgba(24,18,110,0)",
+                        <Pressable
+                          style={({ pressed }) => [
+                            s.banner,
+                            pressed && { opacity: 0.96 },
                           ]}
-                          start={{ x: 0, y: 0.5 }}
-                          end={{ x: 1, y: 0.5 }}
-                          style={StyleSheet.absoluteFill}
-                        />
-                        <View style={{ zIndex: 2, paddingLeft: 18 }}>
-                          <Text style={s.bannerTitle}>{b.title}</Text>
-                          <Text style={s.bannerSub}>{b.sub}</Text>
-                          <Text style={s.bannerTagline}>{b.tagline}</Text>
+                          onPress={() => handleBannerPress(b)}
+                          accessibilityRole="button"
+                          accessibilityLabel={b.label}
+                        >
+                          <Image
+                            source={b.imageUrl ? { uri: b.imageUrl } : b.source}
+                            style={s.bannerImage}
+                            resizeMode="cover"
+                            onError={(e) =>
+                              console.log(
+                                "BANNER IMAGE ERROR:",
+                                b.id,
+                                e.nativeEvent,
+                              )
+                            }
+                          />
                           <LinearGradient
-                            colors={["#4F46E5", "#2563EB", "#9333EA"]}
-                            locations={[0, 0.52, 1]}
+                            colors={[
+                              "rgba(24,18,110,0.88)",
+                              "rgba(24,18,110,0.45)",
+                              "rgba(24,18,110,0)",
+                            ]}
                             start={{ x: 0, y: 0.5 }}
                             end={{ x: 1, y: 0.5 }}
-                            style={s.bannerBtn}
-                          >
-                            <Text style={s.bannerBtnText}>{b.cta}</Text>
-                            <Ionicons
-                              name="arrow-forward"
-                              size={15}
-                              color="#fff"
-                            />
-                          </LinearGradient>
-                        </View>
-                        {shineOn ? (
-                          <ShineLayer
-                            value={shineOn}
-                            from={-60}
-                            to={screenWidth}
-                            height={320}
+                            style={StyleSheet.absoluteFill}
                           />
-                        ) : null}
-                      </Pressable>
-                    </View>
-                  ))}
-                </ScrollView>
+                          <View style={{ zIndex: 2, paddingLeft: 18 }}>
+                            <Text style={s.bannerTitle}>{b.title}</Text>
+                            <Text style={s.bannerSub}>{b.sub}</Text>
+                            <Text style={s.bannerTagline}>{b.tagline}</Text>
+                            <LinearGradient
+                              colors={["#4F46E5", "#2563EB", "#9333EA"]}
+                              locations={[0, 0.52, 1]}
+                              start={{ x: 0, y: 0.5 }}
+                              end={{ x: 1, y: 0.5 }}
+                              style={s.bannerBtn}
+                            >
+                              <Text style={s.bannerBtnText}>{b.cta}</Text>
+                              <Ionicons
+                                name="arrow-forward"
+                                size={15}
+                                color="#fff"
+                              />
+                            </LinearGradient>
+                          </View>
+                          {shineOn ? (
+                            <ShineLayer
+                              value={shineOn}
+                              from={-60}
+                              to={screenWidth}
+                              height={320}
+                            />
+                          ) : null}
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
 
-                <View
-                  style={s.dots}
-                  accessibilityLabel={`Banner ${bannerIndex + 1} of ${BANNERS.length}`}
-                >
-                  {BANNERS.map((b, i) => (
-                    <View
-                      key={b.id}
-                      style={[s.dot, i === bannerIndex && s.dotActive]}
-                    />
-                  ))}
-                </View>
-              </LinearGradient>
+                  <View
+                    style={s.dots}
+                    accessibilityLabel={`Banner ${bannerIndex + 1} of ${homeBanners.length}`}
+                  >
+                    {homeBanners.map((b, i) => (
+                      <View
+                        key={b.id}
+                        style={[s.dot, i === bannerIndex && s.dotActive]}
+                      />
+                    ))}
+                  </View>
+                </LinearGradient>
+              ) : null}
 
               {/* Categories */}
               <View style={s.categorySectionHeader}>
@@ -3013,106 +3460,35 @@ export default function HomeScreen() {
                   <Ionicons name="chevron-forward" size={14} color={C.brand} />
                 </Pressable>
               </View>
-              <View style={s.catGrid}>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                nestedScrollEnabled
+                directionalLockEnabled
+                contentContainerStyle={s.catGrid}
+              >
                 {categoriesLoading
-                  ? [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  ? Array.from({ length: 7 }, (_, i) => (
                       <View key={i} style={s.catItem}>
                         <View style={s.skeletonCategoryTile}>
-                          <Skeleton width={36} height={36} radius={12} />
+                          <Skeleton width={52} height={52} radius={16} />
                         </View>
-                        <Skeleton
-                          width={44}
-                          height={10}
-                          radius={5}
-                          style={{ marginTop: 9 }}
-                        />
                       </View>
                     ))
                   : categories.length > 0
-                    ? [
-                        ...categories.slice(0, 7).map((c, i) => (
-                          <Pressable
+                    ? categories
+                        .slice(0, 10)
+                        .map((c, i) => (
+                          <CategoryHomeTile
                             key={c._id}
-                            style={({ pressed }) => [
-                              s.catItem,
-                              pressed && {
-                                opacity: 0.88,
-                                transform: [{ scale: 0.96 }],
-                              },
-                            ]}
-                            android_ripple={{
-                              color: "rgba(58,47,184,0.10)",
-                              borderless: false,
-                            }}
-                            onPress={() =>
-                              router.push({
-                                pathname: "/(tabs)/categories",
-                                params: { categoryId: c._id },
-                              })
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel={c.name}
-                          >
-                            <View
-                              style={[
-                                s.catTile,
-                                {
-                                  backgroundColor:
-                                    TILE_TINTS[i % TILE_TINTS.length],
-                                },
-                              ]}
-                            >
-                              {c.image ? (
-                                <Image
-                                  source={{ uri: c.image }}
-                                  style={s.catImage}
-                                  resizeMode="cover"
-                                />
-                              ) : (
-                                <Text style={{ fontSize: 24 }}>
-                                  {c.icon || "🛍️"}
-                                </Text>
-                              )}
-                            </View>
-                            <Text style={s.categoryName} numberOfLines={2}>
-                              {c.name}
-                            </Text>
-                          </Pressable>
-                        )),
-                        <Pressable
-                          key="more"
-                          style={({ pressed }) => [
-                            s.catItem,
-                            pressed && {
-                              opacity: 0.88,
-                              transform: [{ scale: 0.96 }],
-                            },
-                          ]}
-                          android_ripple={{
-                            color: "rgba(58,47,184,0.10)",
-                            borderless: false,
-                          }}
-                          onPress={() => router.push("/(tabs)/categories")}
-                          accessibilityRole="button"
-                          accessibilityLabel="More categories"
-                        >
-                          <View
-                            style={[
-                              s.catTile,
-                              { backgroundColor: C.brandSoft },
-                            ]}
-                          >
-                            <Ionicons
-                              name="ellipsis-horizontal"
-                              size={26}
-                              color={C.brand}
-                            />
-                          </View>
-                          <Text style={s.categoryName}>More</Text>
-                        </Pressable>,
-                      ]
+                            category={c}
+                            index={i}
+                            onPress={() => openCategoryProducts(c)}
+                          />
+                        ))
                     : null}
-              </View>
+              </ScrollView>
 
               {contentLoading ? (
                 <>
@@ -3139,14 +3515,14 @@ export default function HomeScreen() {
                     "Popular Picks",
                     "Products shoppers are exploring",
                   )}
-                  {shelf("topRated", "Top Rated", "Highly rated by customers")}
+                  {/* {shelf("topRated", "Top Rated", "Highly rated by customers")} */}
                   {shelf("newArrivals", "New Arrivals", "Just added")}
-                  {shelf("featured", "Featured Products", "Handpicked for you")}
-                  {shelf(
+                  {/* {shelf("featured", "Featured Products", "Handpicked for you")} */}
+                  {/* {shelf(
                     "recommended",
                     "Recommended for You",
                     "Discover your next favourite",
-                  )}
+                  )} */}
                   {shelf("flashSales", "Flash Sales", "Limited-time offers")}
                   {shelf("deals", "Deals", "Save on everyday picks")}
                   {shelf("lowStock", "Almost Gone", "Limited stock available")}
@@ -3159,7 +3535,12 @@ export default function HomeScreen() {
                     <ShelfSkeleton />
                   ) : null}
 
-                  <View style={s.shelf}>
+                  <View
+                    style={s.shelf}
+                    onLayout={(event) =>
+                      setAllProductsOffset(event.nativeEvent.layout.y)
+                    }
+                  >
                     <SectionHeader
                       title="All products"
                       subtitle={`${sortedResults.length} available`}
@@ -4120,26 +4501,24 @@ export default function HomeScreen() {
           />
           <View style={s.filterSheet}>
             <View style={s.filterHandle} />
-            <LinearGradient
-              colors={[C.surface, "#F5F4FF"]}
-              style={s.filterHeader}
-            >
+            <View style={s.filterHeader}>
               <View style={s.filterHeaderIcon}>
-                <Ionicons name="options" size={20} color={C.brand} />
+                <Ionicons name="options" size={22} color={C.brand} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.filterTitle}>Find your perfect pick</Text>
-                <Text style={s.filterSubtitle}>
-                  Refine products with a few taps
-                </Text>
-                <View style={s.filterHeaderMeta}>
-                  <View style={s.filterMetaDot} />
-                  <Text style={s.filterMetaText}>
-                    {activeFilterCount
-                      ? `${activeFilterCount} filter${activeFilterCount > 1 ? "s" : ""} selected`
-                      : "Personalise your results"}
-                  </Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Text style={s.filterTitle}>Filters</Text>
+                  {activeFilterCount > 0 ? (
+                    <View style={s.filterHeaderBadge}>
+                      <Text style={s.filterHeaderBadgeText}>
+                        {activeFilterCount}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
+                <Text style={s.filterSubtitle}>Refine your products</Text>
               </View>
               <Pressable
                 onPress={() => setFilterOpen(false)}
@@ -4149,262 +4528,523 @@ export default function HomeScreen() {
               >
                 <Ionicons name="close" size={21} color={C.ink} />
               </Pressable>
-            </LinearGradient>
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={s.filterBody}
-            >
-              <View style={s.filterSectionCard}>
-                <View style={s.filterSectionHeading}>
-                  <View style={s.filterSectionIcon}>
-                    <Ionicons name="grid-outline" size={16} color={C.brand} />
-                  </View>
-                  <Text style={s.filterSectionTitle}>CATEGORY</Text>
-                </View>
-                <View style={s.filterChipWrap}>
-                  {[{ _id: "All", name: "All categories" }, ...categories].map(
-                    (item: any) => (
-                      <Pressable
-                        key={`filter-category-${item._id}`}
-                        onPress={() => {
-                          setSelectedCategory(String(item._id));
-                          setSelectedSubCategory("All");
-                        }}
-                        style={[
-                          s.filterOption,
-                          selectedCategory === String(item._id) &&
-                            s.filterOptionActive,
-                        ]}
-                      >
+            </View>
+            <View style={s.filterDashboard}>
+              {/* Website-style left filter navigation */}
+              <ScrollView
+                style={s.filterSidebar}
+                contentContainerStyle={s.filterSidebarContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={s.filterSidebarEyebrow}>FILTER BY</Text>
+                {(
+                  [
+                    {
+                      id: "category",
+                      title: "Category",
+                      subtitle: "Choose category",
+                      count: selectedCategory !== "All" ? 1 : 0,
+                      icon: "grid-outline",
+                    },
+                    {
+                      id: "subcategory",
+                      title: "Subcategory",
+                      subtitle: "Refine category",
+                      count: selectedSubCategory !== "All" ? 1 : 0,
+                      icon: "layers-outline",
+                    },
+                    {
+                      id: "brand",
+                      title: "Brand",
+                      subtitle: "Choose brand",
+                      count: selectedBrand !== "All" ? 1 : 0,
+                      icon: "pricetag-outline",
+                    },
+                    {
+                      id: "price",
+                      title: "Price Range",
+                      subtitle: "Set your budget",
+                      count:
+                        priceRange[0] !== 0 || priceRange[1] !== 5000 ? 1 : 0,
+                      icon: "cash-outline",
+                    },
+                    {
+                      id: "sort",
+                      title: "Sort By",
+                      subtitle: "Arrange products",
+                      count: sort !== "relevance" ? 1 : 0,
+                      icon: "swap-vertical-outline",
+                    },
+                  ] as const
+                ).map((item) => {
+                  const active = activeFilter === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => setActiveFilter(item.id)}
+                      style={[s.filterNavItem, active && s.filterNavItemActive]}
+                    >
+                      {active ? <View style={s.filterNavIndicator} /> : null}
+                      <View style={{ flex: 1, minWidth: 0 }}>
                         <Text
                           style={[
-                            s.filterOptionText,
-                            selectedCategory === String(item._id) &&
-                              s.filterOptionTextActive,
+                            s.filterNavTitle,
+                            active && s.filterNavTitleActive,
                           ]}
                         >
-                          {item.name}
+                          {item.title}
                         </Text>
-                      </Pressable>
-                    ),
-                  )}
-                </View>
-              </View>
-
-              <View style={s.filterSectionCard}>
-                <View style={s.filterSectionHeading}>
-                  <View style={s.filterSectionIcon}>
-                    <Ionicons name="layers-outline" size={16} color={C.brand} />
-                  </View>
-                  <Text style={s.filterSectionTitle}>SUBCATEGORY</Text>
-                </View>
-                <View style={s.filterChipWrap}>
-                  {[
-                    { id: "All", name: "All subcategories" },
-                    ...uniqueSubCategories,
-                  ].map((item: any) => (
-                    <Pressable
-                      key={`filter-subcategory-${item.id}`}
-                      onPress={() => setSelectedSubCategory(String(item.id))}
-                      style={[
-                        s.filterOption,
-                        selectedSubCategory === String(item.id) &&
-                          s.filterOptionActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          s.filterOptionText,
-                          selectedSubCategory === String(item.id) &&
-                            s.filterOptionTextActive,
-                        ]}
-                      >
-                        {item.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                  {uniqueSubCategories.length === 0 ? (
-                    <Text style={s.filterMuted}>
-                      No subcategories found in loaded products.
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-
-              <View style={s.filterSectionCard}>
-                <View style={s.filterSectionHeading}>
-                  <View style={s.filterSectionIcon}>
-                    <Ionicons
-                      name="pricetag-outline"
-                      size={16}
-                      color={C.brand}
-                    />
-                  </View>
-                  <Text style={s.filterSectionTitle}>BRAND</Text>
-                </View>
-                <View style={s.filterChipWrap}>
-                  {["All", ...uniqueBrands].map((item) => (
-                    <Pressable
-                      key={`filter-brand-${item}`}
-                      onPress={() => setSelectedBrand(item)}
-                      style={[
-                        s.filterOption,
-                        selectedBrand === item && s.filterOptionActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          s.filterOptionText,
-                          selectedBrand === item && s.filterOptionTextActive,
-                        ]}
-                      >
-                        {item === "All" ? "All brands" : item}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-
-              <View style={s.filterSectionCard}>
-                <View style={s.filterSectionHeading}>
-                  <View style={s.filterSectionIcon}>
-                    <Ionicons name="cash-outline" size={16} color={C.brand} />
-                  </View>
-                  <Text style={s.filterSectionTitle}>PRICE RANGE</Text>
-                </View>
-                <Text style={s.filterPriceHeadline}>
-                  {money(priceRange[0])} — {money(priceRange[1])}
-                  {priceRange[1] >= 5000 ? "+" : ""}
-                </Text>
-                <View style={s.filterPriceInputs}>
-                  <View style={s.filterPriceField}>
-                    <Text style={s.filterFieldLabel}>MINIMUM (₹)</Text>
-                    <TextInput
-                      value={minPriceInput}
-                      onChangeText={(v) => {
-                        setMinPriceInput(v.replace(/[^0-9]/g, ""));
-                        const n = Number(v.replace(/[^0-9]/g, ""));
-                        if (Number.isFinite(n) && n <= priceRange[1])
-                          setPriceRange([n, priceRange[1]]);
-                      }}
-                      keyboardType="number-pad"
-                      style={s.filterPriceInput}
-                      placeholder="0"
-                    />
-                  </View>
-                  <View style={s.filterPriceField}>
-                    <Text style={s.filterFieldLabel}>MAXIMUM (₹)</Text>
-                    <TextInput
-                      value={maxPriceInput}
-                      onChangeText={(v) => {
-                        setMaxPriceInput(v.replace(/[^0-9]/g, ""));
-                        const n = Number(v.replace(/[^0-9]/g, ""));
-                        if (Number.isFinite(n) && n >= priceRange[0])
-                          setPriceRange([priceRange[0], n]);
-                      }}
-                      keyboardType="number-pad"
-                      style={s.filterPriceInput}
-                      placeholder="5000"
-                    />
-                  </View>
-                </View>
-                <View style={s.filterChipWrap}>
-                  {[
-                    {
-                      label: "Under ₹500",
-                      range: [0, 500] as [number, number],
-                    },
-                    {
-                      label: "₹500–₹1,000",
-                      range: [500, 1000] as [number, number],
-                    },
-                    {
-                      label: "₹1,000–₹2,500",
-                      range: [1000, 2500] as [number, number],
-                    },
-                    {
-                      label: "₹2,500+",
-                      range: [2500, 5000] as [number, number],
-                    },
-                    {
-                      label: "Any price",
-                      range: [0, 5000] as [number, number],
-                    },
-                  ].map((preset) => (
-                    <Pressable
-                      key={preset.label}
-                      onPress={() => {
-                        setPriceRange(preset.range);
-                        setMinPriceInput(String(preset.range[0]));
-                        setMaxPriceInput(String(preset.range[1]));
-                      }}
-                      style={[
-                        s.filterOption,
-                        priceRange[0] === preset.range[0] &&
-                          priceRange[1] === preset.range[1] &&
-                          s.filterOptionActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          s.filterOptionText,
-                          priceRange[0] === preset.range[0] &&
-                            priceRange[1] === preset.range[1] &&
-                            s.filterOptionTextActive,
-                        ]}
-                      >
-                        {preset.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-
-              <View style={s.filterSectionCard}>
-                <View style={s.filterSectionHeading}>
-                  <View style={s.filterSectionIcon}>
-                    <Ionicons
-                      name="swap-vertical-outline"
-                      size={16}
-                      color={C.brand}
-                    />
-                  </View>
-                  <Text style={s.filterSectionTitle}>SORT BY</Text>
-                </View>
-                <View style={s.filterSortList}>
-                  {SORTS.map((option) => (
-                    <Pressable
-                      key={`filter-sort-${option.key}`}
-                      onPress={() => setSort(option.key)}
-                      style={[
-                        s.filterSortOption,
-                        sort === option.key && s.filterOptionActive,
-                      ]}
-                    >
-                      <View style={{ flex: 1 }}>
                         <Text
                           style={[
-                            s.filterOptionText,
-                            sort === option.key && s.filterOptionTextActive,
+                            s.filterNavSubtitle,
+                            active && s.filterNavSubtitleActive,
                           ]}
                         >
-                          {option.label}
+                          {item.subtitle}
                         </Text>
                       </View>
-                      <Ionicons
-                        name={
-                          sort === option.key
-                            ? "radio-button-on"
-                            : "radio-button-off"
-                        }
-                        size={19}
-                        color={sort === option.key ? "#fff" : C.inkSoft}
-                      />
+                      {item.count > 0 ? (
+                        <View style={s.filterNavCount}>
+                          <Text style={s.filterNavCountText}>{item.count}</Text>
+                        </View>
+                      ) : null}
                     </Pressable>
-                  ))}
-                </View>
-              </View>
-            </ScrollView>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Active filter content */}
+              <ScrollView
+                style={s.filterContentPane}
+                contentContainerStyle={s.filterBody}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {activeFilter === "category" && (
+                  <View style={s.filterSectionCard}>
+                    <View style={{ marginBottom: 14 }}>
+                      <Text style={s.filterContentTitle}>Category</Text>
+                      <Text style={s.filterContentDescription}>
+                        Select the category you want to browse
+                      </Text>
+                    </View>
+                    {[
+                      { _id: "All", name: "All Categories" },
+                      ...categories,
+                    ].map((item: any, index: number) => {
+                      const selected = selectedCategory === String(item._id);
+                      return (
+                        <Pressable
+                          key={`filter-category-${item._id}`}
+                          onPress={() => {
+                            setSelectedCategory(String(item._id));
+                            setSelectedSubCategory("All");
+                            setActiveFilter("subcategory");
+                          }}
+                          style={[
+                            s.filterCategoryRow,
+                            selected && s.filterCategoryRowActive,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                        >
+                          {item.image ? (
+                            <Image
+                              source={{ uri: item.image }}
+                              style={s.filterCategoryImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                s.filterCategoryImageFallback,
+                                {
+                                  backgroundColor:
+                                    TILE_TINTS[index % TILE_TINTS.length],
+                                },
+                              ]}
+                            >
+                              <Text style={{ fontSize: 22 }}>
+                                {item.icon ||
+                                  (item._id === "All" ? "🛍️" : "📦")}
+                              </Text>
+                            </View>
+                          )}
+                          <Text
+                            style={[
+                              s.filterCategoryRowText,
+                              selected && s.filterCategoryRowTextActive,
+                            ]}
+                          >
+                            {item.name}
+                          </Text>
+                          {selected ? (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={21}
+                              color={C.brand}
+                              style={{ marginLeft: "auto" }}
+                            />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {activeFilter === "subcategory" && (
+                  <View style={s.filterSectionCard}>
+                    <View style={s.filterSectionHeading}>
+                      <View style={s.filterSectionIcon}>
+                        <Ionicons
+                          name="layers-outline"
+                          size={16}
+                          color={C.brand}
+                        />
+                      </View>
+                      <View>
+                        <Text style={s.filterContentTitle}>Subcategory</Text>
+                        <Text style={s.filterContentDescription}>
+                          Choose a more specific product group
+                        </Text>
+                      </View>
+                    </View>
+                    {subCategoriesLoading ? (
+                      <Text style={s.filterMuted}>
+                        Loading subcategories...
+                      </Text>
+                    ) : (
+                      <View style={s.filterStackList}>
+                        {[
+                          {
+                            _id: "All",
+                            name: "All Subcategories",
+                            image: undefined,
+                            icon: "🛍️",
+                          },
+                          ...subCategories,
+                        ].map((item: any, index: number) => {
+                          const selected =
+                            selectedSubCategory === String(item._id);
+                          return (
+                            <Pressable
+                              key={`filter-subcategory-${item._id}`}
+                              onPress={() =>
+                                setSelectedSubCategory(String(item._id))
+                              }
+                              style={[
+                                s.filterImageRow,
+                                selected && s.filterImageRowActive,
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                            >
+                              {item.image ? (
+                                <Image
+                                  source={{ uri: item.image }}
+                                  style={s.filterCategoryImage}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    s.filterCategoryImageFallback,
+                                    {
+                                      backgroundColor:
+                                        TILE_TINTS[index % TILE_TINTS.length],
+                                    },
+                                  ]}
+                                >
+                                  <Text style={{ fontSize: 21 }}>
+                                    {item.icon || "📦"}
+                                  </Text>
+                                </View>
+                              )}
+                              <Text
+                                style={[
+                                  s.filterCategoryRowText,
+                                  selected && s.filterCategoryRowTextActive,
+                                ]}
+                              >
+                                {item.name}
+                              </Text>
+                              {selected ? (
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={21}
+                                  color={C.brand}
+                                />
+                              ) : null}
+                            </Pressable>
+                          );
+                        })}
+                        {subCategories.length === 0 ? (
+                          <Text style={s.filterMuted}>
+                            No subcategories available.
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {activeFilter === "brand" && (
+                  <View style={s.filterSectionCard}>
+                    <View style={s.filterSectionHeading}>
+                      <View style={s.filterSectionIcon}>
+                        <Ionicons
+                          name="pricetag-outline"
+                          size={16}
+                          color={C.brand}
+                        />
+                      </View>
+                      <View>
+                        <Text style={s.filterContentTitle}>Brand</Text>
+                        <Text style={s.filterContentDescription}>
+                          Choose your preferred brand
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={s.filterStackList}>
+                      {[{ name: "All", image: undefined }, ...uniqueBrands].map(
+                        (item: any, index: number) => {
+                          const selected = selectedBrand === item.name;
+                          return (
+                            <Pressable
+                              key={`filter-brand-${item.name}`}
+                              onPress={() => setSelectedBrand(item.name)}
+                              style={[
+                                s.filterImageRow,
+                                selected && s.filterImageRowActive,
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                            >
+                              {item.image ? (
+                                <Image
+                                  source={{ uri: item.image }}
+                                  style={s.filterCategoryImage}
+                                  resizeMode="contain"
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    s.filterCategoryImageFallback,
+                                    {
+                                      backgroundColor:
+                                        TILE_TINTS[index % TILE_TINTS.length],
+                                    },
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name="pricetag-outline"
+                                    size={21}
+                                    color={C.brand}
+                                  />
+                                </View>
+                              )}
+                              <Text
+                                style={[
+                                  s.filterCategoryRowText,
+                                  selected && s.filterCategoryRowTextActive,
+                                ]}
+                              >
+                                {item.name === "All" ? "All Brands" : item.name}
+                              </Text>
+                              {selected ? (
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={21}
+                                  color={C.brand}
+                                />
+                              ) : null}
+                            </Pressable>
+                          );
+                        },
+                      )}
+                      {uniqueBrands.length === 0 ? (
+                        <Text style={s.filterMuted}>No brands available.</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                )}
+
+                {activeFilter === "price" && (
+                  <View style={s.filterSectionCard}>
+                    <View style={s.filterSectionHeading}>
+                      <View style={s.filterSectionIcon}>
+                        <Ionicons
+                          name="cash-outline"
+                          size={16}
+                          color={C.brand}
+                        />
+                      </View>
+                      <View>
+                        <Text style={s.filterContentTitle}>Price Range</Text>
+                        <Text style={s.filterContentDescription}>
+                          Set your budget and find products within your range
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={s.filterPriceHeadline}>
+                      {money(priceRange[0])} — {money(priceRange[1])}
+                      {priceRange[1] >= 5000 ? "+" : ""}
+                    </Text>
+                    <View style={s.filterPriceInputs}>
+                      <View style={s.filterPriceField}>
+                        <Text style={s.filterFieldLabel}>MINIMUM (₹)</Text>
+                        <TextInput
+                          value={minPriceInput}
+                          onChangeText={(v) => {
+                            const clean = v.replace(/[^0-9]/g, "");
+                            setMinPriceInput(clean);
+                            const n = Number(clean);
+                            if (Number.isFinite(n) && n <= priceRange[1])
+                              setPriceRange([n, priceRange[1]]);
+                          }}
+                          keyboardType="number-pad"
+                          style={s.filterPriceInput}
+                          placeholder="0"
+                        />
+                      </View>
+                      <View style={s.filterPriceField}>
+                        <Text style={s.filterFieldLabel}>MAXIMUM (₹)</Text>
+                        <TextInput
+                          value={maxPriceInput}
+                          onChangeText={(v) => {
+                            const clean = v.replace(/[^0-9]/g, "");
+                            setMaxPriceInput(clean);
+                            const n = Number(clean);
+                            if (Number.isFinite(n) && n >= priceRange[0])
+                              setPriceRange([priceRange[0], n]);
+                          }}
+                          keyboardType="number-pad"
+                          style={s.filterPriceInput}
+                          placeholder="5000"
+                        />
+                      </View>
+                    </View>
+                    <Text style={s.filterQuickLabel}>QUICK SELECT</Text>
+                    <View style={s.filterChipWrap}>
+                      {[
+                        {
+                          label: "Under ₹500",
+                          range: [0, 500] as [number, number],
+                        },
+                        {
+                          label: "₹500 – ₹1,000",
+                          range: [500, 1000] as [number, number],
+                        },
+                        {
+                          label: "₹1,000 – ₹2,500",
+                          range: [1000, 2500] as [number, number],
+                        },
+                        {
+                          label: "₹2,500+",
+                          range: [2500, 5000] as [number, number],
+                        },
+                        {
+                          label: "Any price",
+                          range: [0, 5000] as [number, number],
+                        },
+                      ].map((preset) => {
+                        const active =
+                          priceRange[0] === preset.range[0] &&
+                          priceRange[1] === preset.range[1];
+                        return (
+                          <Pressable
+                            key={preset.label}
+                            onPress={() => {
+                              setPriceRange(preset.range);
+                              setMinPriceInput(String(preset.range[0]));
+                              setMaxPriceInput(String(preset.range[1]));
+                            }}
+                            style={[
+                              s.filterOption,
+                              active && s.filterOptionActive,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                s.filterOptionText,
+                                active && s.filterOptionTextActive,
+                              ]}
+                            >
+                              {preset.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {activeFilter === "sort" && (
+                  <View style={s.filterSectionCard}>
+                    <View style={s.filterSectionHeading}>
+                      <View style={s.filterSectionIcon}>
+                        <Ionicons
+                          name="swap-vertical-outline"
+                          size={16}
+                          color={C.brand}
+                        />
+                      </View>
+                      <View>
+                        <Text style={s.filterContentTitle}>Sort Products</Text>
+                        <Text style={s.filterContentDescription}>
+                          Choose how you want products to appear
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={s.filterSortList}>
+                      {SORTS.map((option) => (
+                        <Pressable
+                          key={`filter-sort-${option.key}`}
+                          onPress={() => setSort(option.key)}
+                          style={[
+                            s.filterSortOption,
+                            sort === option.key && s.filterOptionActive,
+                          ]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                s.filterOptionText,
+                                sort === option.key && s.filterOptionTextActive,
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                            <Text
+                              style={[s.filterMuted, { paddingVertical: 2 }]}
+                            >
+                              {option.key === "relevance"
+                                ? "Recommended products"
+                                : option.key === "priceLow"
+                                  ? "Cheapest products first"
+                                  : option.key === "priceHigh"
+                                    ? "Most expensive products first"
+                                    : option.key === "discount"
+                                      ? "Highest discount first"
+                                      : "Best rated products first"}
+                            </Text>
+                          </View>
+                          <Ionicons
+                            name={
+                              sort === option.key
+                                ? "radio-button-on"
+                                : "radio-button-off"
+                            }
+                            size={19}
+                            color={sort === option.key ? "#fff" : C.inkSoft}
+                          />
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
             <View style={s.filterFooter}>
               <Pressable
                 style={s.filterResetButton}
@@ -4416,10 +5056,19 @@ export default function HomeScreen() {
                   setMinPriceInput("0");
                   setMaxPriceInput("5000");
                   setSort("relevance");
+                  setActiveFilter("category");
                   setVisibleCount(PAGE_SIZE);
                 }}
               >
-                <Text style={s.filterResetText}>Reset all</Text>
+                <LinearGradient
+                  colors={["#4338CA", "#2563EB", "#7C3AED"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={s.filterFooterButtonGradient}
+                >
+                  <Ionicons name="options-outline" size={16} color="#FFFFFF" />
+                  <Text style={s.filterFooterButtonText}>Reset</Text>
+                </LinearGradient>
               </Pressable>
               <Pressable
                 style={s.filterApplyButton}
@@ -4428,10 +5077,20 @@ export default function HomeScreen() {
                   setFilterOpen(false);
                 }}
               >
-                <Text style={s.filterApplyText}>
-                  Show {sortedResults.length} products
-                </Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
+                <LinearGradient
+                  colors={["#4338CA", "#2563EB", "#7C3AED"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.filterApplyGradient}
+                >
+                  <Ionicons name="checkmark" size={17} color="#fff" />
+                  <Text style={s.filterApplyText}>Show Products</Text>
+                  <View style={s.filterFooterCount}>
+                    <Text style={s.filterFooterCountText}>
+                      {sortedResults.length}
+                    </Text>
+                  </View>
+                </LinearGradient>
               </Pressable>
             </View>
           </View>
@@ -4650,9 +5309,9 @@ const s = StyleSheet.create({
   },
 
   skeletonCategoryTile: {
-    width: 60,
-    height: 60,
-    borderRadius: 19,
+    width: 82,
+    height: 82,
+    borderRadius: 23,
     backgroundColor: "#ECEEF3",
     borderWidth: 1,
     borderColor: "#FFFFFF",
@@ -4748,37 +5407,61 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+
   catGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    rowGap: 8,
-  },
-  catItem: {
-    width: "25%",
     alignItems: "center",
-    marginBottom: 2,
-    paddingHorizontal: 5,
+    paddingHorizontal: GUTTER,
+    paddingTop: 8,
+    paddingBottom: 10,
+    columnGap: 13,
+  },
+
+  catItem: {
+    width: 78,
     minHeight: 100,
+    alignItems: "center",
+    justifyContent: "flex-start",
     borderRadius: 16,
   },
+
   catTile: {
-    width: 60,
-    height: 60,
-    borderRadius: 19,
+    width: 58,
+    height: 58,
+    borderRadius: 17,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#F3E8FF",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.95)",
-    elevation: 2,
+    elevation: 3,
     shadowColor: "#171747",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.07,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 7,
   },
-  catImage: { width: "100%", height: "100%" },
+
+  catImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  catFallbackIcon: {
+    fontSize: 34,
+  },
+
+  catName: {
+    width: "100%",
+    marginTop: 7,
+    color: C.ink,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    textAlign: "center",
+    paddingHorizontal: 2,
+  },
+
   /* banner */
   banner: {
     height: 184,
@@ -5160,7 +5843,7 @@ const s = StyleSheet.create({
   filterBackdrop: { ...StyleSheet.absoluteFillObject },
   filterSheet: {
     height: "90%",
-    backgroundColor: "#F7F8FC",
+    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     overflow: "hidden",
@@ -5177,13 +5860,14 @@ const s = StyleSheet.create({
     backgroundColor: "#D8DAE8",
   },
   filterHeader: {
-    paddingHorizontal: 17,
-    paddingVertical: 15,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     borderBottomWidth: 1,
     borderBottomColor: "#E9EAF4",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 13,
   },
   filterHeaderIcon: {
     width: 44,
@@ -5193,6 +5877,16 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  filterHeaderBadge: {
+    minWidth: 25,
+    height: 25,
+    paddingHorizontal: 7,
+    borderRadius: 13,
+    backgroundColor: C.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterHeaderBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   filterHeaderMeta: {
     flexDirection: "row",
     alignItems: "center",
@@ -5223,7 +5917,145 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  filterBody: { paddingHorizontal: 14, paddingTop: 5, paddingBottom: 22 },
+  filterDashboard: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: "#F7F7FC",
+    minHeight: 0,
+  },
+  filterSidebar: {
+    width: 116,
+    flexGrow: 0,
+    flexShrink: 0,
+    backgroundColor: "#FFFFFF",
+    borderRightWidth: 1,
+    borderRightColor: "#E8E9F2",
+  },
+  filterSidebarContent: {
+    paddingHorizontal: 7,
+    paddingTop: 15,
+    paddingBottom: 18,
+  },
+  filterSidebarEyebrow: {
+    color: C.inkSoft,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    marginHorizontal: 7,
+    marginBottom: 10,
+  },
+  filterNavItem: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+    borderRadius: 12,
+    marginBottom: 5,
+    backgroundColor: "transparent",
+    position: "relative",
+  },
+  filterNavItemActive: { backgroundColor: "#F0EFFF" },
+  filterNavIndicator: {
+    position: "absolute",
+    left: 0,
+    top: 13,
+    bottom: 13,
+    width: 3,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    backgroundColor: C.brand,
+  },
+  filterNavTitle: { color: "#4D526F", fontSize: 10, fontWeight: "900" },
+  filterNavTitleActive: { color: C.brand },
+  filterNavSubtitle: {
+    color: C.inkSoft,
+    fontSize: 7,
+    fontWeight: "600",
+    marginTop: 3,
+  },
+  filterNavSubtitleActive: { color: C.brand, opacity: 0.72 },
+  filterNavCount: {
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: C.brand,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 3,
+  },
+  filterNavCountText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
+  filterContentPane: { flex: 1, minWidth: 0, backgroundColor: "#F8F9FC" },
+  filterContentTitle: { color: C.ink, fontSize: 16, fontWeight: "900" },
+  filterContentDescription: {
+    color: C.inkSoft,
+    fontSize: 9,
+    lineHeight: 14,
+    marginTop: 3,
+  },
+  filterQuickLabel: {
+    color: C.inkSoft,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    marginBottom: 9,
+  },
+  filterBody: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 22 },
+  filterCategoryRow: {
+    minHeight: 68,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E1E6F0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    marginBottom: 11,
+  },
+  filterCategoryRowActive: {
+    borderColor: "#A9B5FF",
+    backgroundColor: "#F0F2FF",
+  },
+  filterStackList: { gap: 10 },
+  filterImageRow: {
+    minHeight: 66,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#E1E6F0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  filterImageRowActive: {
+    borderColor: C.brand,
+    backgroundColor: "#F0EFFF",
+  },
+  filterCategoryImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#F4F6FA",
+  },
+  filterCategoryImageFallback: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterCategoryRowText: {
+    color: "#39445D",
+    fontSize: 12,
+    fontWeight: "800",
+    flex: 1,
+  },
+  filterCategoryRowTextActive: { color: C.brand },
   filterSectionCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -5337,32 +6169,54 @@ const s = StyleSheet.create({
   },
   filterResetButton: {
     minHeight: 50,
-    paddingHorizontal: 18,
+    width: "34%",
     borderRadius: 15,
-    borderWidth: 1,
-    borderColor: "#E2E4EF",
-    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    alignItems: "stretch",
+    justifyContent: "center",
+  },
+  filterFooterButtonGradient: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    gap: 7,
     alignItems: "center",
     justifyContent: "center",
   },
-  filterResetText: { color: C.ink, fontWeight: "800", fontSize: 13 },
+  filterFooterButtonText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
   filterApplyButton: {
     flex: 1,
     minHeight: 50,
-    paddingHorizontal: 16,
     borderRadius: 15,
-    backgroundColor: C.brand,
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "hidden",
     shadowColor: C.brand,
     shadowOpacity: 0.22,
     shadowRadius: 9,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
+  filterApplyGradient: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filterApplyText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  filterFooterCount: {
+    minWidth: 25,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterFooterCountText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   stickyFilterOverlay: {
     position: "absolute",
     // The measured search navbar height is applied inline so this rail sits

@@ -2498,9 +2498,9 @@ export default function ProductDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="dark" translucent={false} backgroundColor="#FFFFFF" />
-      {/* White safe-area header keeps the product image below the system area. */}
-      <View style={{ height: insets.top, backgroundColor: "#FFFFFF" }} />
+      {/* Transparent system bar overlays the product image. White icons are
+          paired with a subtle top scrim so they remain readable on bright photos. */}
+      <StatusBar style={showCompactNavbar ? "dark" : "light"} translucent backgroundColor="transparent" />
 
       {/* Compact sticky product bar appears after the gallery scrolls away. */}
       {showCompactNavbar && (
@@ -2602,9 +2602,22 @@ export default function ProductDetailsScreen() {
 
         <View style={styles.imageSection}>
           <View style={styles.mainGalleryFrame}>
+            {/* Top scrim keeps white system icons readable over any product photo. */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={["rgba(0,0,0,0.42)", "rgba(0,0,0,0)"]}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: insets.top + 76,
+                zIndex: 10,
+              }}
+            />
             {/* Floating controls over the image; no separate page header. */}
             <View
-              style={[styles.imageTopControls, { paddingTop: 8 }]}
+              style={[styles.imageTopControls, { paddingTop: insets.top + 8 }]}
               pointerEvents="box-none"
             >
               <Pressable
@@ -2687,7 +2700,7 @@ export default function ProductDetailsScreen() {
                     <Image
                       source={{ uri: image }}
                       style={styles.mainImage}
-                      resizeMode="contain"
+                      resizeMode="cover"
                     />
                   </Pressable>
                 ))}
