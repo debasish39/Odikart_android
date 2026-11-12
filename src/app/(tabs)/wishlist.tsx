@@ -28,13 +28,13 @@ import {
   decreaseCartItem,
   getCart,
   increaseCartItem,
-} from "../api/cart";
+} from "../../api/cart";
 
 import { useFocusEffect, useRouter } from "expo-router";
 
-import api from "../api/api";
+import api from "../../api/api";
 
-import { colors } from "../theme/colors";
+import { colors } from "../../theme/colors";
 
 type WishlistProduct = {
   _id: string;

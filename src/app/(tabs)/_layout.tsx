@@ -1,35 +1,40 @@
-import React, {
-  useEffect,
-  useRef,
-} from "react";
-
+import React, { useEffect, useRef } from "react";
 import {
   Animated,
   Easing,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-
-import {
-  Tabs,
-  router,
-} from "expo-router";
-
+import { Tabs, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import {
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
-
-import { colors } from "../../theme/colors";
 import { useAuth } from "../../hooks/useAuth";
 
+// OdiKart indigo / purple palette
+const NAV = {
+  primary: "#4F46E5",
+  primaryDark: "#3730A3",
+  activeBg: "#EEF0FF",
+  activeBorder: "#D9D6FE",
+  inactive: "#6B7280",
+  pill: "rgba(255,255,255,0.97)",
+  border: "#E8E7FF",
+  shadow: "#312E81",
+};
+
+type NavItem = {
+  name: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  fallbackPath: string;
+};
 
 // ====================================================
-// SHINING TAB ICON
+// ANIMATED TAB ICON
 // ====================================================
 
 function ShiningTabIcon({
@@ -41,378 +46,238 @@ function ShiningTabIcon({
   color: string;
   iconName: keyof typeof Ionicons.glyphMap;
 }) {
-  const scale = useRef(
-    new Animated.Value(1)
-  ).current;
-
-  const glowOpacity = useRef(
-    new Animated.Value(0)
-  ).current;
-
-  const glowScale = useRef(
-    new Animated.Value(0.8)
-  ).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    let animation: Animated.CompositeAnimation | null =
-      null;
+    let animation: Animated.CompositeAnimation | undefined;
 
     if (focused) {
       animation = Animated.loop(
         Animated.sequence([
           Animated.parallel([
             Animated.timing(scale, {
-              toValue: 1.08,
-              duration: 700,
+              toValue: 1.06,
+              duration: 650,
               easing: Easing.out(Easing.ease),
               useNativeDriver: true,
             }),
             Animated.timing(glowOpacity, {
-              toValue: 0.28,
-              duration: 700,
-              useNativeDriver: true,
-            }),
-            Animated.timing(glowScale, {
-              toValue: 1.15,
-              duration: 700,
+              toValue: 0.16,
+              duration: 650,
               useNativeDriver: true,
             }),
           ]),
           Animated.parallel([
             Animated.timing(scale, {
               toValue: 1,
-              duration: 700,
+              duration: 650,
               easing: Easing.inOut(Easing.ease),
               useNativeDriver: true,
             }),
             Animated.timing(glowOpacity, {
               toValue: 0,
-              duration: 700,
-              useNativeDriver: true,
-            }),
-            Animated.timing(glowScale, {
-              toValue: 0.8,
-              duration: 700,
+              duration: 650,
               useNativeDriver: true,
             }),
           ]),
         ])
       );
-
       animation.start();
     } else {
       scale.stopAnimation();
       glowOpacity.stopAnimation();
-      glowScale.stopAnimation();
-
       scale.setValue(1);
       glowOpacity.setValue(0);
-      glowScale.setValue(0.8);
     }
 
-    return () => {
-      animation?.stop();
-    };
-  }, [
-    focused,
-    scale,
-    glowOpacity,
-    glowScale,
-  ]);
+    return () => animation?.stop();
+  }, [focused, scale, glowOpacity]);
 
   return (
-    <View style={styles.iconWrapper}>
+    <View style={styles.iconWrap}>
       <Animated.View
         pointerEvents="none"
         style={[
           styles.iconGlow,
-          {
-            backgroundColor: colors.primary,
-            opacity: glowOpacity,
-            transform: [
-              {
-                scale: glowScale,
-              },
-            ],
-          },
+          { backgroundColor: NAV.primary, opacity: glowOpacity },
         ]}
       />
-
-      <Animated.View
-        style={{
-          transform: [
-            {
-              scale,
-            },
-          ],
-        }}
-      >
-        <Ionicons
-          name={iconName}
-          size={focused ? 22 : 21}
-          color={color}
-        />
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name={iconName} size={21} color={color} />
       </Animated.View>
     </View>
   );
 }
 
-
 // ====================================================
-// CUSTOM ANIMATED TAB BAR
+// FIVE-ITEM FLOATING NAVBAR
+// Home | Categories | Trending | Wishlist | Offers
 // ====================================================
 
-function AnimatedTabBar({
-  state,
-  descriptors,
-  navigation,
-}: any) {
+const NAV_ITEMS: NavItem[] = [
+  {
+    name: "index",
+    label: "Home",
+    icon: "home-outline",
+    activeIcon: "home",
+    fallbackPath: "/(tabs)",
+  },
+  {
+    name: "categories",
+    label: "Categories",
+    icon: "grid-outline",
+    activeIcon: "grid",
+    fallbackPath: "/(tabs)/categories",
+  },
+  {
+    name: "trending",
+    label: "Trending",
+    icon: "flame-outline",
+    activeIcon: "flame",
+    fallbackPath: "/(tabs)/trending",
+  },
+  {
+    name: "wishlist",
+    label: "Wishlist",
+    icon: "heart-outline",
+    activeIcon: "heart",
+    fallbackPath: "/(tabs)/wishlist",
+  },
+  {
+    name: "offers",
+    label: "Offers",
+    icon: "pricetag-outline",
+    activeIcon: "pricetag",
+    fallbackPath: "/(tabs)/offers",
+  },
+];
+
+function FloatingTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
-
-  const translateY = useRef(
-    new Animated.Value(0)
-  ).current;
-
-  const currentRoute =
-    state.routes[state.index];
-
-  const hideTabBar =
-    currentRoute?.params?.hideTabBar === true;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const currentRoute = state.routes[state.index];
+  const hideTabBar = currentRoute?.params?.hideTabBar === true;
 
   useEffect(() => {
-    Animated.timing(
-      translateY,
-      {
-        toValue: hideTabBar ? 120 : 0,
-        duration: hideTabBar ? 170 : 230,
-        easing: hideTabBar
-          ? Easing.in(Easing.cubic)
-          : Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }
-    ).start();
-  }, [
-    hideTabBar,
-    translateY,
-  ]);
+    Animated.timing(translateY, {
+      toValue: hideTabBar ? 110 : 0,
+      duration: hideTabBar ? 170 : 230,
+      easing: hideTabBar
+        ? Easing.in(Easing.cubic)
+        : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [hideTabBar, translateY]);
 
-  // Reserve space for Android's gesture/3-button navigation area as well
-  // as iOS's home-indicator area. The white bar background extends behind
-  // the system area, while tab buttons stay safely above it.
-  const tabBarHeight = 68 + insets.bottom;
+  const handleTabPress = (item: NavItem) => {
+    const route = state.routes.find((r: any) => r.name === item.name);
+
+    if (route) {
+      const event = navigation.emit({
+        type: "tabPress",
+        target: route.key,
+        canPreventDefault: true,
+      });
+
+      if (route.name !== currentRoute?.name && !event.defaultPrevented) {
+        navigation.navigate(route.name);
+      }
+      return;
+    }
+
+    router.push(item.fallbackPath as any);
+  };
 
   return (
     <Animated.View
+      pointerEvents={hideTabBar ? "none" : "box-none"}
       style={[
-        styles.tabBarContainer,
+        styles.floatingWrapper,
         {
-          height: tabBarHeight,
-          paddingBottom: insets.bottom,
-          transform: [
-            {
-              translateY,
-            },
-          ],
+          bottom: Math.max(insets.bottom, 8) + 5,
+          transform: [{ translateY }],
         },
       ]}
     >
-      <View
-        style={styles.tabButtonsContainer}
-      >
-        {state.routes.map(
-          (
-            route: any,
-            index: number
-          ) => {
-            const descriptor =
-              descriptors[route.key];
+      <View style={styles.navPill}>
+        {NAV_ITEMS.map((item) => {
+          const focused = currentRoute?.name === item.name;
+          const color = focused ? NAV.primary : NAV.inactive;
 
-            const options =
-              descriptor.options;
-
-            const isFocused =
-              state.index === index;
-
-            let iconName:
-              keyof typeof Ionicons.glyphMap;
-
-            if (route.name === "index") {
-              iconName = isFocused
-                ? "home"
-                : "home-outline";
-            } else if (
-              route.name === "categories"
-            ) {
-              iconName = isFocused
-                ? "grid"
-                : "grid-outline";
-            } else if (
-              route.name === "profile"
-            ) {
-              iconName = isFocused
-                ? "person"
-                : "person-outline";
-            } else {
-              iconName =
-                "ellipse-outline";
-            }
-
-            const label =
-              options.tabBarLabel ??
-              options.title ??
-              route.name;
-
-            const onPress = () => {
-              const event =
-                navigation.emit({
-                  type: "tabPress",
-                  target: route.key,
-                  canPreventDefault: true,
-                });
-
-              if (
-                !isFocused &&
-                !event.defaultPrevented
-              ) {
-                navigation.navigate(
-                  route.name
-                );
-              }
-            };
-
-            const onLongPress = () => {
-              navigation.emit({
-                type: "tabLongPress",
-                target: route.key,
-              });
-            };
-
-            return (
-              <Pressable
-                key={route.key}
-                accessibilityRole="tab"
-                accessibilityState={{
-                  selected: isFocused,
-                }}
-                accessibilityLabel={
-                  options.tabBarAccessibilityLabel ??
-                  `${label} tab`
-                }
-                testID={
-                  options.tabBarButtonTestID
-                }
-                onPress={onPress}
-                onLongPress={onLongPress}
-                style={({ pressed }) => [
-                  styles.tabButton,
-                  pressed &&
-                    styles.tabButtonPressed,
+          return (
+            <Pressable
+              key={item.name}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: focused }}
+              accessibilityLabel={`${item.label} tab`}
+              onPress={() => handleTabPress(item)}
+              style={({ pressed }) => [
+                styles.tabButton,
+                focused && styles.activeTabButton,
+                pressed && styles.tabPressed,
+              ]}
+            >
+              <ShiningTabIcon
+                focused={focused}
+                color={color}
+                iconName={focused ? item.activeIcon : item.icon}
+              />
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                style={[
+                  styles.tabLabel,
+                  {
+                    color,
+                    fontWeight: focused ? "800" : "600",
+                  },
                 ]}
               >
-                <View
-                  style={[
-                    styles.iconContainer,
-                    isFocused &&
-                      styles.activeIconContainer,
-                  ]}
-                >
-                  <ShiningTabIcon
-                    focused={isFocused}
-                    color={
-                      isFocused
-                        ? colors.primary
-                        : colors.textMuted
-                    }
-                    iconName={iconName}
-                  />
-                </View>
-
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    {
-                      color: isFocused
-                        ? colors.primary
-                        : colors.textMuted,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          }
-        )}
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
     </Animated.View>
   );
 }
 
-
 // ====================================================
-// TABS LAYOUT
+// EXPO ROUTER TABS
 // ====================================================
 
 export default function TabsLayout() {
-  const {
-    user,
-    loading: authLoading,
-  } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-
-        tabBarActiveTintColor:
-          colors.primary,
-
-        tabBarInactiveTintColor:
-          colors.textMuted,
-
+        tabBarActiveTintColor: NAV.primary,
+        tabBarInactiveTintColor: NAV.inactive,
         tabBarHideOnKeyboard: true,
       }}
-      tabBar={(props) => (
-        <AnimatedTabBar {...props} />
-      )}
+      tabBar={(props) => <FloatingTabBar {...props} />}
     >
-      {/* HOME */}
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="categories" options={{ title: "Categories" }} />
+      <Tabs.Screen name="trending" options={{ title: "Trending" }} />
+      <Tabs.Screen name="wishlist" options={{ title: "Wishlist" }} />
+      <Tabs.Screen name="offers" options={{ title: "Offers" }} />
 
-      {/* CATEGORIES */}
-      <Tabs.Screen
-        name="categories"
-        options={{
-          title: "Categories",
-        }}
-      />
-
-      {/* PROFILE */}
       <Tabs.Screen
         name="profile"
-        options={{
-          title: "Profile",
-        }}
+        options={{ href: null, title: "Profile" }}
         listeners={{
           tabPress: (event) => {
-            if (authLoading) {
-              return;
-            }
+            if (authLoading) return;
 
             if (!user) {
               event.preventDefault();
-
-              router.push(
-                "/login-modal"
-              );
-
-              return;
+              router.push("/login-modal");
             }
           },
         }}
@@ -421,122 +286,78 @@ export default function TabsLayout() {
   );
 }
 
-
 // ====================================================
-// STYLES
+// MODERN COMPACT FLOATING NAVBAR STYLES
 // ====================================================
 
 const styles = StyleSheet.create({
-  tabBarContainer: {
+  floatingWrapper: {
     position: "absolute",
-
-    left: 0,
-    right: 0,
-    bottom: 0,
-
-    width: "100%",
-
-    backgroundColor: "#FFFFFF",
-
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-
-    borderTopWidth: 1,
-    borderTopColor: "#EEF0FF",
-
-    shadowColor: "#4338CA",
-
-    shadowOffset: {
-      width: 0,
-      height: -4,
-    },
-
-    shadowOpacity: 0.12,
-
-    shadowRadius: 20,
-
-    elevation: 10,
-
-    overflow: "visible",
-
+    left: 16,
+    right: 16,
     zIndex: 9999,
+    elevation: 16,
   },
 
-  tabButtonsContainer: {
-    flex: 1,
-
+  navPill: {
+    minHeight: 62,
+    width: "100%",
     flexDirection: "row",
-
     alignItems: "center",
-
-    justifyContent: "space-around",
-
-    paddingHorizontal: 8,
-    paddingTop: 4,
+    justifyContent: "space-between",
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    borderRadius: 34,
+    backgroundColor: NAV.pill,
+    borderWidth: 1,
+    borderColor: NAV.border,
+    shadowColor: NAV.shadow,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.13,
+    shadowRadius: 14,
+    elevation: 11,
   },
 
   tabButton: {
     flex: 1,
-
-    height: 58,
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    borderRadius: 16,
-  },
-
-  tabButtonPressed: {
-    opacity: 0.72,
-  },
-
-  iconContainer: {
-    width: 34,
-    height: 30,
-
+    minWidth: 0,
+    height: 52,
+    borderRadius: 27,
     alignItems: "center",
     justifyContent: "center",
-
-    borderRadius: 12,
+    gap: 1,
+    paddingHorizontal: 1,
   },
 
-  activeIconContainer: {
-    width: 38,
-    height: 32,
-
-    backgroundColor: "#EEF0FF",
-
-    borderRadius: 12,
+  activeTabButton: {
+    backgroundColor: NAV.activeBg,
+    borderWidth: 1,
+    borderColor: NAV.activeBorder,
   },
 
-  iconWrapper: {
-    width: 28,
-    height: 28,
+  tabPressed: {
+    opacity: 0.76,
+    transform: [{ scale: 0.96 }],
+  },
 
+  iconWrap: {
+    width: 27,
+    height: 25,
     alignItems: "center",
     justifyContent: "center",
   },
 
   iconGlow: {
     position: "absolute",
-
-    width: 25,
-    height: 25,
-
-    borderRadius: 20,
+    width: 22,
+    height: 22,
+    borderRadius: 14,
   },
 
   tabLabel: {
-    fontSize: 10,
-
-    fontWeight: "700",
-
-    marginTop: 2,
-
+    fontSize: 9,
+    lineHeight: 12,
     textAlign: "center",
+    letterSpacing: 0,
   },
 });
