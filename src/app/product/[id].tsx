@@ -119,6 +119,18 @@ type Variant = {
 
   stock?: number;
 
+  weight?: number;
+
+  dimensions?: {
+    width?: number;
+    height?: number;
+    depth?: number;
+  };
+
+  barcode?: string;
+
+  sold?: number;
+
   images?: string[];
 
   isActive?: boolean;
@@ -191,9 +203,23 @@ type Product = {
 
   brand?: string;
 
+  slug?: string;
+
+  tags?: string[];
+
   productType?: string;
 
   currency?: string;
+
+  offer?: {
+    enabled?: boolean;
+    discountType?: string;
+    value?: number;
+    label?: string;
+    startDate?: string;
+    endDate?: string;
+    maxQuantity?: number;
+  };
 
   variants?: Variant[];
 
@@ -228,6 +254,14 @@ type Product = {
   isPopular?: boolean;
 
   isLowStock?: boolean;
+
+  isDealOfTheDay?: boolean;
+
+  isFlashSale?: boolean;
+
+  isRecommended?: boolean;
+
+  isAlmostSoldOut?: boolean;
 
   material?: string;
 
@@ -586,7 +620,7 @@ function FullScreenImageViewer({
 
             <View style={styles.viewerTouchHint}>
               <Ionicons name="hand-left-outline" size={17} color="#fff" />
-              <Text style={styles.viewerTouchHintText}>Pinch & drag</Text>
+              <Text style={styles.viewerTouchHintText}>Swipe • Pinch</Text>
             </View>
           </View>
 
@@ -594,6 +628,10 @@ function FullScreenImageViewer({
             ref={scrollRef}
             horizontal
             pagingEnabled
+            snapToInterval={SCREEN_WIDTH}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            bounces={false}
             showsHorizontalScrollIndicator={false}
             scrollEventThrottle={16}
             nestedScrollEnabled
@@ -1118,6 +1156,8 @@ export default function ProductDetailsScreen() {
   const initialCachedProduct =
     productDetailsMemoryCache.get(initialProductId) || null;
   const [product, setProduct] = useState<Product | null>(initialCachedProduct);
+  const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
   const productLoadRequest = useRef(0);
 
   const [loading, setLoading] = useState(!initialCachedProduct);
@@ -1195,8 +1235,15 @@ export default function ProductDetailsScreen() {
       productShown = true;
 
       const variants = productData.variants || [];
+      // Prefer an active variant that can actually be purchased. The first
+      // variant in this product's data is size 7 with zero stock.
       const activeVariant =
-        variants.find((variant: Variant) => variant.isActive !== false) || null;
+        variants.find(
+          (variant: Variant) =>
+            variant.isActive !== false && Number(variant.stock ?? 0) > 0,
+        ) ||
+        variants.find((variant: Variant) => variant.isActive !== false) ||
+        null;
 
       setSelectedVariant(activeVariant);
 
@@ -1297,6 +1344,44 @@ export default function ProductDetailsScreen() {
   useEffect(() => {
     loadProduct();
   }, [loadProduct]);
+
+  // Load products from the same category for the "You may also like" shelf.
+  useEffect(() => {
+    let cancelled = false;
+    const loadSimilarProducts = async () => {
+      if (!product?._id) return;
+      const categoryId = getMongoId(product.category || product.categoryData);
+      if (!categoryId) {
+        setSimilarProducts([]);
+        return;
+      }
+      setSimilarLoading(true);
+      try {
+        const response = await api.get("/products", {
+          params: { category: categoryId, limit: 12, page: 1 },
+        });
+        const payload = response.data;
+        const list =
+          payload?.products ||
+          payload?.data?.products ||
+          payload?.data ||
+          payload?.items ||
+          (Array.isArray(payload) ? payload : []);
+        if (!cancelled && Array.isArray(list)) {
+          setSimilarProducts(
+            list.filter((item: Product) => item?._id && String(item._id) !== String(product._id)).slice(0, 10),
+          );
+        }
+      } catch (similarError: any) {
+        console.log("SIMILAR PRODUCTS ERROR:", similarError?.response?.data || similarError?.message);
+        if (!cancelled) setSimilarProducts([]);
+      } finally {
+        if (!cancelled) setSimilarLoading(false);
+      }
+    };
+    void loadSimilarProducts();
+    return () => { cancelled = true; };
+  }, [product?._id, product?.category, product?.categoryData]);
 
   /* =====================================================
      WISHLIST STATUS
@@ -2797,6 +2882,56 @@ export default function ProductDetailsScreen() {
             </Text>
           )}
 
+          {!!product.tags?.length && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 }}>
+              {product.tags.map((tag) => (
+                <View
+                  key={tag}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 20,
+                    backgroundColor: "#EEF2FF",
+                    borderWidth: 1,
+                    borderColor: "#E0E7FF",
+                  }}
+                >
+                  <Text style={{ color: "#4338CA", fontSize: 11, fontWeight: "700" }}>
+                    #{tag.replace(/-/g, " ")}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {product.offer?.enabled && (
+            <View style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 13,
+              backgroundColor: "#F5F3FF",
+              borderWidth: 1,
+              borderColor: "#DDD6FE",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 9,
+            }}>
+              <Ionicons name="pricetag" size={19} color="#6D28D9" />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#5B21B6", fontSize: 13, fontWeight: "900" }}>
+                  {product.offer.label || "Special offer"}
+                </Text>
+                {!!product.offer.value && (
+                  <Text style={{ color: "#6D28D9", fontSize: 11, marginTop: 2 }}>
+                    {product.offer.discountType === "percentage"
+                      ? `${product.offer.value}% additional offer`
+                      : `${formatPrice(product.offer.value)} offer`}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* RATING */}
 
           <Pressable
@@ -2925,6 +3060,69 @@ export default function ProductDetailsScreen() {
             </View>
           )}
 
+          {/* Show every purchasable SKU when variants do not expose named attributes. */}
+          {attributeGroups.length === 0 && activeVariants.length > 1 && (
+            <View style={styles.variantSection}>
+              <Text style={styles.sectionLabel}>Available variants</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 10, paddingVertical: 4 }}
+              >
+                {activeVariants.map((variant, index) => {
+                  const selected =
+                    String(selectedVariant?.sku || selectedVariant?._id || index) ===
+                    String(variant.sku || variant._id || index);
+                  const variantStock =
+                    variant.stock === undefined || variant.stock === null
+                      ? null
+                      : Number(variant.stock);
+                  const soldOut = variantStock !== null && variantStock <= 0;
+                  const label =
+                    Object.values(variant.attributes || {}).filter(Boolean).join(" • ") ||
+                    variant.sku ||
+                    `Option ${index + 1}`;
+                  return (
+                    <Pressable
+                      key={`${variant.sku || variant._id || "variant"}-${index}`}
+                      disabled={soldOut}
+                      onPress={() => {
+                        setSelectedVariant(variant);
+                        setSelectedOptions(
+                          Object.fromEntries(
+                            Object.entries(variant.attributes || {}).map(([key, value]) => [key, String(value)]),
+                          ),
+                        );
+                        setSelectedImage(0);
+                        setQuantity(minimumOrderQuantity);
+                      }}
+                      style={{
+                        minWidth: 112,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: 14,
+                        borderWidth: 1.5,
+                        borderColor: selected ? "#4F46E5" : colors.borderLight || "#E5E7EB",
+                        backgroundColor: selected ? "#EEF2FF" : "#FFFFFF",
+                        opacity: soldOut ? 0.48 : 1,
+                      }}
+                    >
+                      <Text style={{ color: selected ? "#3730A3" : colors.text, fontWeight: "800", fontSize: 13 }}>
+                        {label}
+                      </Text>
+                      <Text style={{ color: "#4F46E5", fontWeight: "800", marginTop: 5 }}>
+                        {formatPrice(Number(variant.price || 0))}
+                      </Text>
+                      <Text style={{ color: soldOut ? colors.error : colors.textSecondary, fontSize: 11, marginTop: 3 }}>
+                        {soldOut ? "Out of stock" : variantStock === null ? "Available" : `${variantStock} in stock`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {/* =================================================
               QUANTITY
           ================================================= */}
@@ -3006,6 +3204,44 @@ export default function ProductDetailsScreen() {
                   </Text>
                 </View>
               )}
+
+              {!!(product.category && typeof product.category === "object" && product.category.name) && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailLabel}>Category</Text>
+                  <Text style={styles.detailValue}>{product.category.name}</Text>
+                </View>
+              )}
+
+              {!!(product.subCategory && typeof product.subCategory === "object" && product.subCategory.name) && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailLabel}>Subcategory</Text>
+                  <Text style={styles.detailValue}>{product.subCategory.name}</Text>
+                </View>
+              )}
+
+              {!!selectedVariant?.weight && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailLabel}>Product weight</Text>
+                  <Text style={styles.detailValue}>{selectedVariant.weight} g</Text>
+                </View>
+              )}
+
+              {!!(selectedVariant?.dimensions && (
+                Number(selectedVariant.dimensions.width || 0) ||
+                Number(selectedVariant.dimensions.height || 0) ||
+                Number(selectedVariant.dimensions.depth || 0)
+              )) && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailLabel}>Package dimensions</Text>
+                  <Text style={styles.detailValue}>
+                    {[
+                      selectedVariant.dimensions.width,
+                      selectedVariant.dimensions.height,
+                      selectedVariant.dimensions.depth,
+                    ].map((value) => Number(value || 0)).join(" × ")} cm
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -3076,6 +3312,32 @@ export default function ProductDetailsScreen() {
 
                   <Text style={styles.serviceText}>
                     {product.shipping.processingTime} days
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {product.shipping?.freeShipping === false && product.shipping?.shippingCharge !== undefined && (
+              <View style={styles.serviceRow}>
+                <View style={styles.serviceIcon}>
+                  <Ionicons name="wallet-outline" size={22} color={colors.primary} />
+                </View>
+                <View style={styles.serviceContent}>
+                  <Text style={styles.serviceTitle}>Shipping charge</Text>
+                  <Text style={styles.serviceText}>{formatPrice(product.shipping.shippingCharge)}</Text>
+                </View>
+              </View>
+            )}
+
+            {!!product.shipping?.serviceablePincodes?.length && (
+              <View style={styles.serviceRow}>
+                <View style={styles.serviceIcon}>
+                  <Ionicons name="location-outline" size={22} color={colors.primary} />
+                </View>
+                <View style={styles.serviceContent}>
+                  <Text style={styles.serviceTitle}>Currently serviceable pincodes</Text>
+                  <Text style={styles.serviceText}>
+                    {product.shipping.serviceablePincodes.join(", ")}
                   </Text>
                 </View>
               </View>
@@ -3382,6 +3644,49 @@ export default function ProductDetailsScreen() {
             )}
           </View>
         </View>
+
+        {/* =================================================
+            SIMILAR PRODUCTS
+        ================================================= */}
+        {(similarLoading || similarProducts.length > 0) && (
+          <View style={{ marginTop: 18, paddingHorizontal: 16, paddingBottom: 18 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <View>
+                <Text style={{ fontSize: 18, fontWeight: "900", color: colors.text }}>You may also like</Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 3 }}>More products from this category</Text>
+              </View>
+            </View>
+            {similarLoading && similarProducts.length === 0 ? (
+              <ActivityIndicator color="#4F46E5" />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                {similarProducts.map((item) => {
+                  const variant = item.variants?.find((v) => v.isActive !== false) || item.variants?.[0];
+                  const image = item.media?.thumbnail || item.media?.images?.[0] || variant?.images?.[0];
+                  return (
+                    <Pressable
+                      key={item._id}
+                      onPress={() => router.push({ pathname: "/product/[id]", params: { id: item._id } } as any)}
+                      style={{ width: 148, padding: 10, borderRadius: 16, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8EAF5" }}
+                    >
+                      {image ? (
+                        <Image source={{ uri: image }} style={{ width: "100%", height: 112, borderRadius: 11 }} resizeMode="contain" />
+                      ) : (
+                        <View style={{ width: "100%", height: 112, alignItems: "center", justifyContent: "center", backgroundColor: "#F3F4FF", borderRadius: 11 }}>
+                          <Ionicons name="image-outline" size={28} color={colors.textMuted} />
+                        </View>
+                      )}
+                      <Text numberOfLines={2} style={{ color: colors.text, fontWeight: "700", fontSize: 12, marginTop: 9, minHeight: 34 }}>{item.title}</Text>
+                      <Text style={{ color: "#4F46E5", fontWeight: "900", fontSize: 14, marginTop: 5 }}>
+                        {formatPrice(Number(variant?.price || 0))}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* =================================================

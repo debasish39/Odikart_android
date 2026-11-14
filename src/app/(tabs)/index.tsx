@@ -16,6 +16,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Linking,
   Modal,
   Platform,
@@ -26,11 +27,23 @@ import {
   Text,
   TextInput,
   ToastAndroid,
+  UIManager,
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import Share from "react-native-share";
+
+// Animate the compact-header layout changes on Android as well as iOS.
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // Voice search needs a development build. In Expo Go (or if the package is missing) the mic button simply stays hidden.
 let SpeechModule: any = null;
@@ -77,22 +90,22 @@ import { useAuth } from "../../hooks/useAuth";
 
 /* =========================================================
    DESIGN TOKENS
-   Indigo stays as the brand; saffron (Odisha's temple flag
-   colour) is the single warm accent. Cool-tinted neutrals.
+   Odikart blue • indigo • violet visual system.
+   Cool-tinted surfaces with a consistent brand accent.
 ========================================================= */
 
 const C = {
-  brand: "#6366F1",
-  brandDark: "#4F46E5",
+  brand: "#4F46E5",
+  brandDark: "#3730A3",
   brandSoft: "#EEF2FF",
-  saffron: "#F59E0B",
-  saffronSoft: "#FFF7E6",
-  bg: "#F8FAFC",
+  accent: "#8B5CF6",
+  star: "#FBBF24",
+  bg: "#F7F7FF",
   surface: "#FFFFFF",
-  ink: "#172B4D",
-  inkSoft: "#64748B",
-  inkMuted: "#94A3B8",
-  line: "#E2E8F0",
+  ink: "#1E1B4B",
+  inkSoft: "#63638A",
+  inkMuted: "#9292B5",
+  line: "#E4E4F7",
   success: "#15803D",
   danger: "#DC2626",
   dangerSoft: "#FEE9E9",
@@ -189,12 +202,12 @@ const FALLBACK_HOME_BANNERS: HomeBanner[] = BANNERS.map((banner) => ({
 const BANNER_INTERVAL = 4500;
 const TILE_TINTS = [
   "#E0E7FF",
-  "#E0E7FF",
+  "#EDE9FE",
   "#EEF2FF",
+  "#DBEAFE",
+  "#F3F0FF",
   "#E0E7FF",
-  "#F8FAFC",
-  "#EEF2FF",
-  "#F8FAFC",
+  "#EDE9FE",
 ];
 const PAGE_SIZE = 12;
 const SEARCH_PLACEHOLDERS = [
@@ -289,11 +302,13 @@ function CategoryHomeTile({
   index,
   onPress,
   compact = false,
+  itemWidth,
 }: {
   category: Category;
   index: number;
   onPress: () => void;
   compact?: boolean;
+  itemWidth?: number;
 }) {
   const imageUrl = getCategoryImageUrl(category.image);
   const [imageFailed, setImageFailed] = useState(false);
@@ -305,7 +320,9 @@ function CategoryHomeTile({
   return (
     <Pressable
       style={({ pressed }) => [
-        compact ? s.catItemCompact : s.catItem,
+        compact
+          ? s.catItemCompact
+          : [s.catItem, itemWidth ? { width: itemWidth } : null],
         pressed && { opacity: 0.88, transform: [{ scale: 0.96 }] },
       ]}
       android_ripple={{
@@ -316,29 +333,41 @@ function CategoryHomeTile({
       accessibilityRole="button"
       accessibilityLabel={`Shop ${category.name}`}
     >
-      {!compact ? (
-        <View
-          style={[
-            s.catTile,
-            { backgroundColor: TILE_TINTS[index % TILE_TINTS.length] },
-          ]}
-        >
-          {imageUrl && !imageFailed ? (
-            <Image
-              key={imageUrl}
-              source={{ uri: imageUrl }}
-              style={s.catImage}
-              resizeMode="cover"
-              onError={() => setImageFailed(true)}
-              accessibilityLabel={`${category.name} category`}
-            />
-          ) : (
-            <Text style={s.catFallbackIcon}>{category.icon || "🛍️"}</Text>
-          )}
-        </View>
-      ) : null}
+      <View
+        style={[
+          compact ? s.catTileCompact : s.catTile,
+          { backgroundColor: TILE_TINTS[index % TILE_TINTS.length] },
+        ]}
+      >
+        {imageUrl && !imageFailed ? (
+          <Image
+            key={imageUrl}
+            source={{ uri: imageUrl }}
+            style={compact ? s.catImageCompact : s.catImage}
+            resizeMode="cover"
+            onError={() => setImageFailed(true)}
+            accessibilityLabel={`${category.name} category`}
+          />
+        ) : (
+          <Text style={compact ? s.catFallbackIconCompact : s.catFallbackIcon}>
+            {category.icon || "🛍️"}
+          </Text>
+        )}
+      </View>
       <Text
-        style={compact ? s.catNameCompact : s.catName}
+        style={
+          compact
+            ? s.catNameCompact
+            : [
+                s.catName,
+                {
+                  color: "#FFFFFF",
+                  textShadowColor: "rgba(24,12,88,0.28)",
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 2,
+                },
+              ]
+        }
         numberOfLines={compact ? 1 : 2}
         ellipsizeMode="tail"
       >
@@ -699,43 +728,118 @@ function CategoryGridSkeleton() {
 }
 
 function HomeSkeleton() {
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const gridW = Math.floor((width - GUTTER * 2 - GRID_GAP) / 2);
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <LinearGradient
-        colors={["#E0E7FF", "#EDE9FE", "#F3E8FF", "#F8FAFC"]}
-        locations={[0, 0.34, 0.7, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-        pointerEvents="none"
-      />
-      <SafeAreaView style={s.root} edges={["top", "left", "right"]}>
-        <StatusBar style="dark" backgroundColor="#E0E7FF" translucent={false} />
+    <View style={{ flex: 1, backgroundColor: "#2563EB" }}>
+      <SafeAreaView
+        style={[s.root, { backgroundColor: "transparent" }]}
+        edges={["left", "right"]}
+      >
+        <StatusBar style="light" backgroundColor="transparent" translucent />
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={{ backgroundColor: "transparent" }}
-          contentContainerStyle={{ paddingBottom: 24 }}
+          contentContainerStyle={{
+            paddingBottom: 24,
+            backgroundColor: C.surface,
+          }}
         >
           {/* Header: delivery row, search and the horizontal category rail */}
-          <View style={s.headerHero}>
+          <LinearGradient
+            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[s.headerHero, { paddingTop: insets.top + 8 }]}
+          >
+            {/* Soft curved light waves: matching the Odikart purple reference. */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 390,
+                height: 190,
+                borderRadius: 190,
+                backgroundColor: "rgba(255,255,255,0.075)",
+                top: -92,
+                left: 82,
+                transform: [{ rotate: "-18deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 340,
+                height: 145,
+                borderRadius: 170,
+                backgroundColor: "rgba(96,165,250,0.20)",
+                top: 88,
+                right: -155,
+                transform: [{ rotate: "-22deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 360,
+                height: 155,
+                borderRadius: 180,
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.12)",
+                top: 25,
+                left: 110,
+                transform: [{ rotate: "-18deg" }],
+              }}
+            />
             <View style={s.headerTop}>
-              <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
-                <Skeleton tone="light" width={38} height={38} radius={19} style={{ marginRight: 10 }} />
+              <View
+                style={{ flex: 1, flexDirection: "row", alignItems: "center" }}
+              >
+                <Skeleton
+                  tone="light"
+                  width={38}
+                  height={38}
+                  radius={19}
+                  style={{ marginRight: 10 }}
+                />
                 <View style={{ flex: 1 }}>
                   <Skeleton tone="light" width={58} height={9} radius={4} />
-                  <Skeleton tone="light" width="62%" height={14} radius={5} style={{ marginTop: 7 }} />
+                  <Skeleton
+                    tone="light"
+                    width="62%"
+                    height={14}
+                    radius={5}
+                    style={{ marginTop: 7 }}
+                  />
                 </View>
               </View>
               <Skeleton tone="light" width={42} height={42} radius={21} />
             </View>
 
             <View style={s.searchWrap}>
-              <View style={[s.searchBox, { minHeight: 54, borderRadius: 18, backgroundColor: "#FFFFFF", borderColor: "rgba(255,255,255,0.5)" }]}>
+              <View
+                style={[
+                  s.searchBox,
+                  {
+                    minHeight: 54,
+                    borderRadius: 18,
+                    backgroundColor: "#FFFFFF",
+                    borderColor: "rgba(255,255,255,0.5)",
+                  },
+                ]}
+              >
                 <Skeleton width={23} height={23} radius={12} />
                 <Skeleton width="64%" height={15} radius={7} />
-                <Skeleton width={40} height={40} radius={20} style={{ marginLeft: "auto" }} />
+                <Skeleton
+                  width={40}
+                  height={40}
+                  radius={20}
+                  style={{ marginLeft: "auto" }}
+                />
               </View>
             </View>
 
@@ -747,29 +851,91 @@ function HomeSkeleton() {
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
               >
-                {Array.from({ length: 8 }, (_, i) => (
-                  <View key={`header-category-${i}`} style={s.catItem}>
-                    <View style={[s.catTile, { backgroundColor: "rgba(255,255,255,0.72)", borderColor: "rgba(99,102,241,0.12)" }]}>
-                      <Skeleton tone="light" width={38} height={38} radius={12} />
+                {Array.from({ length: 5 }, (_, i) => (
+                  <View
+                    key={`header-category-${i}`}
+                    style={[
+                      s.catItem,
+                      { width: Math.floor((width - GUTTER * 2 - 4 * 6) / 5) },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        s.catTile,
+                        {
+                          width: 48,
+                          height: 48,
+                          backgroundColor: "rgba(255,255,255,0.72)",
+                          borderColor: "rgba(99,102,241,0.12)",
+                        },
+                      ]}
+                    >
+                      <Skeleton
+                        tone="light"
+                        width={26}
+                        height={26}
+                        radius={9}
+                      />
                     </View>
-                    <Skeleton tone="light" width={48 + (i % 3) * 8} height={10} radius={5} style={{ marginTop: 9 }} />
+                    <Skeleton
+                      tone="light"
+                      width={48 + (i % 3) * 8}
+                      height={10}
+                      radius={5}
+                      style={{ marginTop: 9 }}
+                    />
                   </View>
                 ))}
               </ScrollView>
             </View>
-          </View>
+          </LinearGradient>
 
           {/* Banner carousel follows the header/category rail in the live page */}
-          <View style={s.bannerBackdrop}>
+          <LinearGradient
+            colors={["#7C3AED", "#A78BFA", "#DBEAFE", "#FFFFFF"]}
+            locations={[0, 0.24, 0.68, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={s.bannerBackdrop}
+          >
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 420,
+                height: 180,
+                borderRadius: 220,
+                backgroundColor: "rgba(255,255,255,0.10)",
+                top: -112,
+                left: 80,
+                transform: [{ rotate: "-16deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 340,
+                height: 140,
+                borderRadius: 180,
+                backgroundColor: "rgba(99,102,241,0.16)",
+                top: 4,
+                right: -150,
+                transform: [{ rotate: "-20deg" }],
+              }}
+            />
             <View style={{ paddingHorizontal: GUTTER }}>
-              <Skeleton height={Math.min(218, Math.max(174, Math.round(width * 0.49)))} radius={22} />
+              <Skeleton
+                height={Math.min(218, Math.max(174, Math.round(width * 0.49)))}
+                radius={22}
+              />
             </View>
             <View style={s.dots}>
               <Skeleton width={18} height={6} radius={3} />
               <Skeleton width={6} height={6} radius={3} />
               <Skeleton width={6} height={6} radius={3} />
             </View>
-          </View>
+          </LinearGradient>
 
           {/* Discovery shelves mirror the order of the live home page */}
           <ShelfSkeleton />
@@ -848,7 +1014,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
   const images = productImages(product);
   const image = images[0] || productImage(product);
   const imageSize = Math.max(100, p.width - 16);
-  const imageHeight = Math.min(136, Math.max(108, Math.round(imageSize * 0.80)));
+  const imageHeight = Math.min(136, Math.max(108, Math.round(imageSize * 0.8)));
   const price = productPrice(product);
   const original = productOriginalPrice(product);
   const discount = productDiscount(product);
@@ -1091,7 +1257,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
         <View style={s.cardMetaRow}>
           {typeof product.rating === "number" && product.rating > 0 ? (
             <View style={s.ratingRow}>
-              <Ionicons name="star" size={13} color={C.saffron} />
+              <Ionicons name="star" size={13} color={C.star} />
               <Text style={s.ratingText}>{product.rating.toFixed(1)}</Text>
               {typeof product.numReviews === "number" ? (
                 <Text style={s.reviewCount}>({product.numReviews})</Text>
@@ -1106,7 +1272,12 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
               <Text style={s.outText}>Sold out</Text>
             </View>
           ) : p.quantity > 0 ? (
-            <View style={s.stepper}>
+            <LinearGradient
+              colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={s.stepper}
+            >
               <Pressable
                 hitSlop={6}
                 onPress={(e) => {
@@ -1130,7 +1301,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
               >
                 <Ionicons name="add" size={15} color="#fff" />
               </Pressable>
-            </View>
+            </LinearGradient>
           ) : (
             <Pressable
               onPress={(e) => {
@@ -1141,7 +1312,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
               style={({ pressed }) => [pressed && { opacity: 0.82 }]}
             >
               <LinearGradient
-                colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                 locations={[0, 0.52, 1]}
                 start={{ x: 0, y: 0.5 }}
                 end={{ x: 1, y: 0.5 }}
@@ -1258,10 +1429,20 @@ async function writeHomeCache<T>(key: string, data: T): Promise<void> {
 ========================================================= */
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+  const headerSurfaceProgress = useRef(new Animated.Value(0)).current;
+  const whiteSurfaceOpacity = headerSurfaceProgress.interpolate({
+    inputRange: [0, 36, 84],
+    outputRange: [0, 0.55, 1],
+    extrapolate: "clamp",
+  });
   const { isAuthenticated } = useAuth();
   const { width: screenWidth } = useWindowDimensions();
   const gridCardW = Math.floor((screenWidth - GUTTER * 2 - GRID_GAP) / 2);
-  const bannerHeight = Math.min(218, Math.max(174, Math.round(screenWidth * 0.49)));
+  const bannerHeight = Math.min(
+    218,
+    Math.max(174, Math.round(screenWidth * 0.49)),
+  );
 
   const [products, setProducts] = useState<Product[]>(
     () => homeProductsCache.get("") ?? [],
@@ -1559,9 +1740,12 @@ export default function HomeScreen() {
   /* ---------- cart + wishlist ---------- */
   const [cartItems, setCartItems] = useState<any[]>([]);
   const cartItemsRef = useRef<any[]>([]);
-  const [variantPickerProduct, setVariantPickerProduct] = useState<Product | null>(null);
+  const [variantPickerProduct, setVariantPickerProduct] =
+    useState<Product | null>(null);
   const [selectedPickerSku, setSelectedPickerSku] = useState("");
-  const [selectedCartSkuByProduct, setSelectedCartSkuByProduct] = useState<Record<string, string>>({});
+  const [selectedCartSkuByProduct, setSelectedCartSkuByProduct] = useState<
+    Record<string, string>
+  >({});
   const [cartCount, setCartCount] = useState(0);
   const [cartPreview, setCartPreview] = useState<string[]>([]);
   const cartBusy = useRef(false);
@@ -1836,12 +2020,37 @@ export default function HomeScreen() {
 
   const onScroll = (e: any) => {
     const y = Math.max(0, e.nativeEvent.contentOffset.y);
+    headerSurfaceProgress.setValue(y);
     const diff = y - lastY.current;
     currentScrollY.current = y;
-    const shouldPinSearch = headerHeroHeight > 0 && y >= headerHeroHeight - 4;
-    setIsSearchPinned((current) =>
-      current === shouldPinSearch ? current : shouldPinSearch,
-    );
+    // Switch the search navbar into its compact state on the very first
+    // meaningful downward movement. ScrollView's native sticky positioning
+    // then keeps this same navbar pinned as soon as it reaches the top edge.
+    const shouldPinSearch = y >= 8;
+    setIsSearchPinned((current) => {
+      if (current === shouldPinSearch) return current;
+
+      // The header background is already driven continuously by scroll position.
+      // Animate the remaining layout swap (category tiles, search spacing and
+      // compact sticky-header padding) so it never snaps at the pin threshold.
+      LayoutAnimation.configureNext({
+        duration: 260,
+        create: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+        update: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          springDamping: 0.88,
+        },
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+
+      return shouldPinSearch;
+    });
     const passedFilterRow =
       filterRowThreshold !== null && y >= filterRowThreshold;
     // Reveal the filter rail only when the shopper scrolls back upward.
@@ -2210,7 +2419,8 @@ export default function HomeScreen() {
 
         if (defaultAddress) {
           setSelectedLocation(
-            formatAddressFull(defaultAddress) || formatAddressShort(defaultAddress),
+            formatAddressFull(defaultAddress) ||
+              formatAddressShort(defaultAddress),
           );
         }
       }
@@ -2537,8 +2747,7 @@ export default function HomeScreen() {
               item.trim().toLowerCase() === value.trim().toLowerCase(),
           ) === index,
       );
-      const preciseLabel =
-        preciseParts.join(", ") || osmDisplayName;
+      const preciseLabel = preciseParts.join(", ") || osmDisplayName;
 
       if (preciseLabel) {
         chooseLocation(preciseLabel);
@@ -2566,15 +2775,23 @@ export default function HomeScreen() {
   const variantSkuOf = (p: Product) => activeVariants(p)[0]?.sku || "";
 
   const variantDisplayName = (variant: Variant, index: number) => {
-    const attrs = variant.attributes && typeof variant.attributes === "object"
-      ? Object.entries(variant.attributes)
-          .map(([key, value]) => `${key}: ${String(value)}`)
-          .join(" · ")
-      : "";
+    const attrs =
+      variant.attributes && typeof variant.attributes === "object"
+        ? Object.entries(variant.attributes)
+            .map(([key, value]) => `${key}: ${String(value)}`)
+            .join(" · ")
+        : "";
     const label =
-      variant.label || variant.name || variant.title || variant.option ||
-      variant.size || variant.weight || variant.color || variant.colour ||
-      variant.packSize || attrs;
+      variant.label ||
+      variant.name ||
+      variant.title ||
+      variant.option ||
+      variant.size ||
+      variant.weight ||
+      variant.color ||
+      variant.colour ||
+      variant.packSize ||
+      attrs;
     return String(label || `Option ${index + 1}`);
   };
 
@@ -2593,7 +2810,8 @@ export default function HomeScreen() {
       return;
     }
     const rememberedSku = selectedCartSkuByProduct[product._id];
-    const initial = variants.find((variant) => variant.sku === rememberedSku) || variants[0];
+    const initial =
+      variants.find((variant) => variant.sku === rememberedSku) || variants[0];
     setSelectedPickerSku(String(initial.sku || ""));
     setVariantPickerProduct(product);
   };
@@ -2613,7 +2831,11 @@ export default function HomeScreen() {
   // in a per-variant queue. Avoid a second GET /cart after every successful tap.
   const cartQueues = useRef<Record<string, Promise<void>>>({});
   const cartQuantitiesRef = useRef<Record<string, number>>({});
-  const mutateProductCart = (p: Product, delta: 1 | -1, skuOverride?: string) => {
+  const mutateProductCart = (
+    p: Product,
+    delta: 1 | -1,
+    skuOverride?: string,
+  ) => {
     if (!isAuthenticated) {
       showToast("Log in to use your cart.", "error");
       return;
@@ -2623,14 +2845,23 @@ export default function HomeScreen() {
       return;
     }
 
-    const sku = skuOverride || selectedCartSkuByProduct[p._id] || variantSkuOf(p);
+    const sku =
+      skuOverride || selectedCartSkuByProduct[p._id] || variantSkuOf(p);
     const key = `${p._id}:${sku}`;
     const image = productImage(p) || "";
     // Resolve the quantity for this exact SKU (not the product-wide card total).
     const renderedQuantity = cartItemsRef.current.reduce((total, item) => {
-      const sameProduct = String(item.productId ?? item.product?._id ?? "") === String(p._id);
-      const itemSku = String(item.variantSku || item.variant?.sku || item.selectedVariant?.sku || "");
-      return total + (sameProduct && itemSku === String(sku) ? Math.max(0, Number(item.quantity) || 0) : 0);
+      const sameProduct =
+        String(item.productId ?? item.product?._id ?? "") === String(p._id);
+      const itemSku = String(
+        item.variantSku || item.variant?.sku || item.selectedVariant?.sku || "",
+      );
+      return (
+        total +
+        (sameProduct && itemSku === String(sku)
+          ? Math.max(0, Number(item.quantity) || 0)
+          : 0)
+      );
     }, 0);
     const current = cartQuantitiesRef.current[key] ?? renderedQuantity;
     if (delta < 0 && current <= 0) return;
@@ -2739,12 +2970,17 @@ export default function HomeScreen() {
   const confirmVariantAdd = () => {
     if (!variantPickerProduct || !selectedPickerSku) return;
     const product = variantPickerProduct;
-    const variant = activeVariants(product).find((item) => String(item.sku || "") === selectedPickerSku);
+    const variant = activeVariants(product).find(
+      (item) => String(item.sku || "") === selectedPickerSku,
+    );
     if (!variant || Number(variant.stock ?? 1) <= 0) {
       showToast("This option is out of stock.", "error");
       return;
     }
-    setSelectedCartSkuByProduct((current) => ({ ...current, [product._id]: selectedPickerSku }));
+    setSelectedCartSkuByProduct((current) => ({
+      ...current,
+      [product._id]: selectedPickerSku,
+    }));
     setVariantPickerProduct(null);
     mutateProductCart(product, 1, selectedPickerSku);
   };
@@ -2752,9 +2988,12 @@ export default function HomeScreen() {
   const handleAdd = (p: Product) => openVariantPicker(p);
   const cartSkuForProduct = (p: Product) =>
     selectedCartSkuByProduct[p._id] ||
-    String(cartItemsRef.current.find(
-      (item) => String(item.productId ?? item.product?._id ?? "") === String(p._id),
-    )?.variantSku || variantSkuOf(p));
+    String(
+      cartItemsRef.current.find(
+        (item) =>
+          String(item.productId ?? item.product?._id ?? "") === String(p._id),
+      )?.variantSku || variantSkuOf(p),
+    );
 
   const handleIncrease = (p: Product) =>
     mutateProductCart(p, 1, cartSkuForProduct(p));
@@ -3037,8 +3276,15 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityLabel="Retry connecting to OdiKart"
           >
-            <Ionicons name="refresh" size={18} color="#FFFFFF" />
-            <Text style={s.offlineRetryText}>Try again</Text>
+            <LinearGradient
+              colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={s.offlineRetryGradient}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" />
+              <Text style={s.offlineRetryText}>Try again</Text>
+            </LinearGradient>
           </Pressable>
           <Text style={s.offlineHint}>
             Your OdiKart account is safe. Please reconnect to continue shopping.
@@ -3158,22 +3404,39 @@ export default function HomeScreen() {
   ======================================================= */
 
   return (
-    <LinearGradient
-      colors={["#E0E7FF", "#EDE9FE", "#F3E8FF", "#F8FAFC"]}
-      locations={[0, 0.38, 0.72, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ flex: 1 }}
-    >
+    <View style={s.root}>
       <SafeAreaView
-        style={[s.root, { backgroundColor: "transparent" }]}
-        edges={["top", "left", "right"]}
+        style={[s.root, { backgroundColor: C.surface }]}
+        edges={["left", "right"]}
       >
-        <StatusBar style="dark" backgroundColor="#E0E7FF" translucent={false} />
+        <StatusBar
+          style={isSearchPinned ? "dark" : "light"}
+          backgroundColor="transparent"
+          translucent
+        />
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: Math.max(insets.top, 24),
+            backgroundColor: "#FFFFFF",
+            opacity: whiteSurfaceOpacity,
+            // Keep this tint behind the scroll content. A high zIndex here
+            // can cover the sticky search field when Android pins child [1].
+            zIndex: 0,
+          }}
+        />
 
         <ScrollView
           ref={mainRef}
-          style={{ backgroundColor: C.bg }}
+          // Let the hero/search/banner surfaces define the top background;
+          // the catalogue's white surface begins in child [2], after the banner.
+          // Render above the status-bar tint layer so the sticky search row
+          // remains visible when the header reaches the top on Android.
+          style={{ backgroundColor: "transparent", zIndex: 1, elevation: 1 }}
           stickyHeaderIndices={[1]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -3193,11 +3456,11 @@ export default function HomeScreen() {
         >
           {/* [0] Purple-indigo gradient hero: scrolls away naturally. */}
           <LinearGradient
-            colors={["#E0E7FF", "#EDE9FE", "#F3E8FF", "#F8FAFC"]}
-            locations={[0, 0.34, 0.7, 1]}
+            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            locations={[0, 0.55, 1]}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.headerHero}
+            end={{ x: 0, y: 1 }}
+            style={[s.headerHero, { paddingTop: insets.top + 8 }]}
             onLayout={(event) => {
               const measuredHeight = Math.round(
                 event.nativeEvent.layout.height,
@@ -3205,6 +3468,54 @@ export default function HomeScreen() {
               if (measuredHeight > 0) setHeaderHeroHeight(measuredHeight);
             }}
           >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                { backgroundColor: "#FFFFFF", opacity: whiteSurfaceOpacity },
+              ]}
+            />
+            {/* Layered translucent curves create the flowing purple wave treatment. */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 410,
+                height: 190,
+                borderRadius: 210,
+                backgroundColor: "rgba(255,255,255,0.075)",
+                top: -92,
+                left: 78,
+                transform: [{ rotate: "-18deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 350,
+                height: 150,
+                borderRadius: 180,
+                backgroundColor: "rgba(96,165,250,0.20)",
+                top: 86,
+                right: -155,
+                transform: [{ rotate: "-22deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 370,
+                height: 160,
+                borderRadius: 190,
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.13)",
+                top: 24,
+                left: 105,
+                transform: [{ rotate: "-18deg" }],
+              }}
+            />
             <View style={s.headerTop}>
               <Pressable
                 style={s.locationBtn}
@@ -3216,39 +3527,29 @@ export default function HomeScreen() {
                 accessibilityLabel={`Delivery location ${locationLabel}. Change`}
               >
                 <View style={s.locationIcon}>
-                  <Ionicons name="location" size={18} color="#4F46E5" />
+                  <Ionicons name="location" size={18} color={C.brandDark} />
                 </View>
                 <View style={{ flexShrink: 1 }}>
-                  <Text style={s.deliverTo}>Deliver to</Text>
+                  <Text
+                    style={[s.deliverTo, { color: "rgba(255,255,255,0.78)" }]}
+                  >
+                    Deliver to
+                  </Text>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={s.locationText} numberOfLines={1}>
+                    <Text
+                      style={[s.locationText, { color: "#FFFFFF" }]}
+                      numberOfLines={1}
+                    >
                       {locationLabel}
                     </Text>
                     <Ionicons
                       name="chevron-down"
                       size={14}
-                      color="#4F46E5"
+                      color="#FFFFFF"
                       style={{ marginLeft: 3 }}
                     />
                   </View>
                 </View>
-              </Pressable>
-              {/* Wishlist shortcut with live saved-item count */}
-              <Pressable
-                style={s.wishlistHeaderBtn}
-                onPress={() => router.push("/wishlist")}
-                accessibilityRole="button"
-                accessibilityLabel={`Open wishlist${wishlistIds.length ? `, ${wishlistIds.length} items` : ""}`}
-                hitSlop={8}
-              >
-                <Ionicons name="heart-outline" size={23} color="#4F46E5" />
-                {wishlistIds.length > 0 ? (
-                  <View style={s.wishlistCountBadge}>
-                    <Text style={s.wishlistCountText}>
-                      {wishlistIds.length > 99 ? "99+" : wishlistIds.length}
-                    </Text>
-                  </View>
-                ) : null}
               </Pressable>
               <Pressable
                 style={s.bellBtn}
@@ -3259,7 +3560,7 @@ export default function HomeScreen() {
                 <Ionicons
                   name="notifications-outline"
                   size={22}
-                  color="#4F46E5"
+                  color={C.brandDark}
                 />
                 {notificationCount > 0 ? (
                   <View style={s.bellBadge}>
@@ -3269,21 +3570,101 @@ export default function HomeScreen() {
                   </View>
                 ) : null}
               </Pressable>
+              {/* Profile shortcut */}
+              <Pressable
+                style={s.profileHeaderBtn}
+                onPress={() => router.push("/(tabs)/profile")}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile"
+                hitSlop={8}
+              >
+                <Ionicons name="person-outline" size={22} color={C.brandDark} />
+              </Pressable>
             </View>
           </LinearGradient>
 
-          {/* [1] Sticky search + category navigation. The large header above collapses away. */}
+          {/* [1] One stable sticky search/category surface; keep its top geometry constant while pinning. */}
           <LinearGradient
-            colors={
-              isSearchPinned
-                ? ["#FFFFFF", "#F8FAFC"]
-                : ["#E0E7FF", "#EDE9FE", "#F3E8FF"]
-            }
-            locations={[0, 0.55, 1]}
+            // This is the exact bottom colour of the hero. Keep it flat so
+            // the sticky surface cannot restart a second gradient.
+            colors={["#7C3AED", "#7C3AED"]}
+            locations={[0, 1]}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[s.stickyHeader, isSearchPinned && s.stickyHeaderCompact]}
+            end={{ x: 0, y: 1 }}
+            // Continue the same top-to-bottom colour flow from the hero into search and categories.
+            // Adding the status-bar inset only after pinning shifts the search input
+            // down by one safe-area height, making it appear to jump.
+            style={[
+              s.stickyHeader,
+              isSearchPinned && s.stickyHeaderCompact,
+              // The sticky header moves underneath the translucent status bar.
+              // Restore the safe-area space only while pinned so the search
+              // field remains fully visible below the system icons.
+              isSearchPinned && { paddingTop: insets.top },
+            ]}
           >
+            {/* Decorative layers belong on this surface because search and category
+                navigation live inside the sticky header, not inside headerHero. */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 430,
+                height: 190,
+                borderRadius: 220,
+                backgroundColor: "rgba(255,255,255,0.075)",
+                top: -92,
+                left: -145,
+                transform: [{ rotate: "-16deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 350,
+                height: 165,
+                borderRadius: 190,
+                backgroundColor: "rgba(96,165,250,0.18)",
+                top: 34,
+                right: -175,
+                transform: [{ rotate: "-23deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 390,
+                height: 150,
+                borderRadius: 200,
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.13)",
+                top: 66,
+                left: 78,
+                transform: [{ rotate: "-17deg" }],
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                width: 260,
+                height: 115,
+                borderRadius: 140,
+                backgroundColor: "rgba(167,139,250,0.16)",
+                bottom: -52,
+                left: -72,
+                transform: [{ rotate: "18deg" }],
+              }}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                { backgroundColor: "#FFFFFF", opacity: whiteSurfaceOpacity },
+              ]}
+            />
             <View
               style={[s.searchWrap, isSearchPinned && s.searchWrapCompact]}
               onLayout={(event) => {
@@ -3375,7 +3756,16 @@ export default function HomeScreen() {
                           );
                         }}
                         style={[
-                          isSearchPinned ? s.catItemCompact : s.catItem,
+                          isSearchPinned
+                            ? s.catItemCompact
+                            : [
+                                s.catItem,
+                                {
+                                  width: Math.floor(
+                                    (screenWidth - GUTTER - 4 * 6) / 5,
+                                  ),
+                                },
+                              ],
                           selectedCategory === "All" && {
                             opacity: 1,
                           },
@@ -3386,29 +3776,41 @@ export default function HomeScreen() {
                           selected: selectedCategory === "All",
                         }}
                       >
-                        {!isSearchPinned ? (
-                          <View
-                            style={[
-                              s.catTile,
-                              {
-                                backgroundColor:
-                                  selectedCategory === "All"
-                                    ? "#E0E7FF"
-                                    : "#EEF2FF",
-                                borderWidth: selectedCategory === "All" ? 2 : 0,
-                                borderColor: "#6366F1",
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name="grid-outline"
-                              size={27}
-                              color="#4F46E5"
-                            />
-                          </View>
-                        ) : null}
+                        <View
+                          style={[
+                            isSearchPinned
+                              ? s.catTileCompact
+                              : [s.catTile, { width: 48, height: 48 }],
+                            {
+                              backgroundColor:
+                                selectedCategory === "All"
+                                  ? "#E0E7FF"
+                                  : "#EEF2FF",
+                              borderWidth: selectedCategory === "All" ? 2 : 1,
+                              borderColor: "#6366F1",
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="grid-outline"
+                            size={isSearchPinned ? 17 : 20}
+                            color="#4F46E5"
+                          />
+                        </View>
                         <Text
-                          style={isSearchPinned ? s.catNameCompact : s.catName}
+                          style={
+                            isSearchPinned
+                              ? s.catNameCompact
+                              : [
+                                  s.catName,
+                                  {
+                                    color: "#FFFFFF",
+                                    textShadowColor: "rgba(24,12,88,0.28)",
+                                    textShadowOffset: { width: 0, height: 1 },
+                                    textShadowRadius: 2,
+                                  },
+                                ]
+                          }
                           numberOfLines={isSearchPinned ? 1 : 2}
                         >
                           All
@@ -3420,6 +3822,9 @@ export default function HomeScreen() {
                           category={category}
                           index={index}
                           compact={isSearchPinned}
+                          itemWidth={Math.floor(
+                            (screenWidth - GUTTER - 4 * 6) / 5,
+                          )}
                           onPress={() => openCategoryProducts(category)}
                         />
                       ))}
@@ -3430,8 +3835,8 @@ export default function HomeScreen() {
             </View>
           </LinearGradient>
 
-          {/* [2] Content */}
-          <View>
+          {/* [2] Content: keep the catalogue surface white; the banner has its own bounded gradient. */}
+          <View style={{ backgroundColor: C.surface, flex: 1 }}>
             {suggestionsOpen ? (
               <View style={s.suggestWrap}>
                 {recent.length > 0 ? (
@@ -3559,7 +3964,14 @@ export default function HomeScreen() {
                       onPress={() => setSearch("")}
                       accessibilityRole="button"
                     >
-                      <Text style={s.retryText}>Clear search</Text>
+                      <LinearGradient
+                        colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={s.retryGradient}
+                      >
+                        <Text style={s.retryText}>Clear search</Text>
+                      </LinearGradient>
                     </Pressable>
                   </View>
                 )}
@@ -3571,10 +3983,50 @@ export default function HomeScreen() {
                     {/* Banner carousel on a header-to-page gradient */}
                     {homeBanners.length > 0 ? (
                       <LinearGradient
-                        colors={["#F3E8FF", "#F8FAFC", C.bg]}
-                        locations={[0, 0.42, 1]}
+                        colors={["#7C3AED", "#A78BFA", "#DBEAFE", "#FFFFFF"]}
+                        locations={[0, 0.24, 0.68, 1]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 1 }}
                         style={s.bannerBackdrop}
                       >
+                        {/* Fade the banner's surrounding gradient into the same white
+                            surface as the header while keeping banner artwork readable. */}
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            {
+                              backgroundColor: "#FFFFFF",
+                              opacity: whiteSurfaceOpacity,
+                            },
+                          ]}
+                        />
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            width: 420,
+                            height: 180,
+                            borderRadius: 220,
+                            backgroundColor: "rgba(255,255,255,0.10)",
+                            top: -112,
+                            left: 80,
+                            transform: [{ rotate: "-16deg" }],
+                          }}
+                        />
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            width: 340,
+                            height: 140,
+                            borderRadius: 180,
+                            backgroundColor: "rgba(99,102,241,0.16)",
+                            top: 4,
+                            right: -150,
+                            transform: [{ rotate: "-20deg" }],
+                          }}
+                        />
                         <ScrollView
                           ref={bannerRef}
                           horizontal
@@ -3640,7 +4092,7 @@ export default function HomeScreen() {
                                     {b.tagline}
                                   </Text>
                                   <LinearGradient
-                                    colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                                     locations={[0, 0.52, 1]}
                                     start={{ x: 0, y: 0.5 }}
                                     end={{ x: 1, y: 0.5 }}
@@ -3760,7 +4212,7 @@ export default function HomeScreen() {
                           return (
                             <View style={s.categoryLanding}>
                               <LinearGradient
-                                colors={["#312E81", "#4F46E5", "#7C3AED"]}
+                                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 1 }}
                                 style={s.categoryHero}
@@ -3911,7 +4363,8 @@ export default function HomeScreen() {
                                           source={{ uri: subCategory.image }}
                                           style={[
                                             s.categorySubChipImage,
-                                            selected && s.categorySubChipImageActive,
+                                            selected &&
+                                              s.categorySubChipImageActive,
                                           ]}
                                           resizeMode="cover"
                                         />
@@ -3919,13 +4372,16 @@ export default function HomeScreen() {
                                         <View
                                           style={[
                                             s.categorySubChipIcon,
-                                            selected && s.categorySubChipIconActive,
+                                            selected &&
+                                              s.categorySubChipIconActive,
                                           ]}
                                         >
                                           <Ionicons
                                             name="layers-outline"
                                             size={14}
-                                            color={selected ? "#FFFFFF" : C.brand}
+                                            color={
+                                              selected ? "#FFFFFF" : C.brand
+                                            }
                                           />
                                         </View>
                                       )}
@@ -3940,7 +4396,11 @@ export default function HomeScreen() {
                                         {subCategory.name}
                                       </Text>
                                       {selected ? (
-                                        <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
+                                        <Ionicons
+                                          name="checkmark-circle"
+                                          size={15}
+                                          color="#FFFFFF"
+                                        />
                                       ) : null}
                                     </Pressable>
                                   );
@@ -4147,14 +4607,21 @@ export default function HomeScreen() {
                               }
                               accessibilityRole="button"
                             >
-                              <Text style={s.moreBtnText}>
-                                Show more products
-                              </Text>
-                              <Ionicons
-                                name="chevron-down"
-                                size={16}
-                                color={C.brand}
-                              />
+                              <LinearGradient
+                                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                                start={{ x: 0, y: 0.5 }}
+                                end={{ x: 1, y: 0.5 }}
+                                style={s.moreBtnGradient}
+                              >
+                                <Text style={s.moreBtnText}>
+                                  Show more products
+                                </Text>
+                                <Ionicons
+                                  name="chevron-down"
+                                  size={16}
+                                  color="#FFFFFF"
+                                />
+                              </LinearGradient>
                             </Pressable>
                           ) : null}
                         </>
@@ -4238,7 +4705,7 @@ export default function HomeScreen() {
             >
               <LinearGradient
                 pointerEvents="none"
-                colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
@@ -4302,10 +4769,17 @@ export default function HomeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Back to top"
             >
-              <View style={s.topBtnIcon}>
-                <Ionicons name="arrow-up" size={17} color="#FFFFFF" />
-              </View>
-              <Text style={s.topBtnText}>Back to top</Text>
+              <LinearGradient
+                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={s.topBtnGradient}
+              >
+                <View style={s.topBtnIcon}>
+                  <Ionicons name="arrow-up" size={17} color="#FFFFFF" />
+                </View>
+                <Text style={s.topBtnText}>Back to top</Text>
+              </LinearGradient>
             </Pressable>
           </Animated.View>
         ) : null}
@@ -4329,7 +4803,9 @@ export default function HomeScreen() {
                 <View style={s.sheetHandle} />
                 <View style={s.variantPickerHeader}>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.variantPickerEyebrow}>CHOOSE YOUR OPTION</Text>
+                    <Text style={s.variantPickerEyebrow}>
+                      CHOOSE YOUR OPTION
+                    </Text>
                     <Text style={s.variantPickerTitle} numberOfLines={2}>
                       {variantPickerProduct.title}
                     </Text>
@@ -4352,17 +4828,33 @@ export default function HomeScreen() {
                       resizeMode="contain"
                     />
                   ) : (
-                    <View style={[s.variantPickerImage, { alignItems: "center", justifyContent: "center" }]}>
-                      <Ionicons name="image-outline" size={26} color={C.inkMuted} />
+                    <View
+                      style={[
+                        s.variantPickerImage,
+                        { alignItems: "center", justifyContent: "center" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="image-outline"
+                        size={26}
+                        color={C.inkMuted}
+                      />
                     </View>
                   )}
                   <View style={{ flex: 1 }}>
                     <Text style={s.variantPickerPrice}>
                       {(() => {
-                        const chosen = activeVariants(variantPickerProduct).find(
-                          (item) => String(item.sku || "") === selectedPickerSku,
+                        const chosen = activeVariants(
+                          variantPickerProduct,
+                        ).find(
+                          (item) =>
+                            String(item.sku || "") === selectedPickerSku,
                         );
-                        return money(Number(chosen?.price ?? productPrice(variantPickerProduct)));
+                        return money(
+                          Number(
+                            chosen?.price ?? productPrice(variantPickerProduct),
+                          ),
+                        );
                       })()}
                     </Text>
                     <Text style={s.variantPickerHint}>
@@ -4371,59 +4863,89 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <Text style={s.variantPickerSectionTitle}>AVAILABLE OPTIONS</Text>
+                <Text style={s.variantPickerSectionTitle}>
+                  AVAILABLE OPTIONS
+                </Text>
                 <ScrollView
                   style={s.variantPickerOptions}
                   contentContainerStyle={{ paddingBottom: 10 }}
                   showsVerticalScrollIndicator={false}
                   nestedScrollEnabled
                 >
-                  {activeVariants(variantPickerProduct).map((variant, index) => {
-                    const sku = String(variant.sku || "");
-                    const selected = selectedPickerSku === sku;
-                    const stockKnown = variant.stock !== undefined && variant.stock !== null;
-                    const soldOut = stockKnown && Number(variant.stock) <= 0;
-                    const original = Number(variant.originalPrice);
-                    return (
-                      <Pressable
-                        key={`${sku || "variant"}-${index}`}
-                        disabled={soldOut}
-                        onPress={() => setSelectedPickerSku(sku)}
-                        style={[
-                          s.variantOption,
-                          selected && s.variantOptionSelected,
-                          soldOut && { opacity: 0.45 },
-                        ]}
-                      >
-                        <View style={[s.variantOptionRadio, selected && s.variantOptionRadioSelected]}>
-                          {selected ? <View style={s.variantOptionRadioDot} /> : null}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[s.variantOptionName, selected && { color: C.brand }]}>
-                            {variantDisplayName(variant, index)}
-                          </Text>
-                          <Text style={s.variantOptionSku}>
-                            {sku ? `SKU: ${sku}` : "Standard option"}
-                            {stockKnown ? ` · ${soldOut ? "Out of stock" : `${variant.stock} available`}` : ""}
-                          </Text>
-                        </View>
-                        <View style={{ alignItems: "flex-end" }}>
-                          <Text style={s.variantOptionPrice}>{money(Number(variant.price) || 0)}</Text>
-                          {original > Number(variant.price || 0) ? (
-                            <Text style={s.variantOptionOriginal}>{money(original)}</Text>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
+                  {activeVariants(variantPickerProduct).map(
+                    (variant, index) => {
+                      const sku = String(variant.sku || "");
+                      const selected = selectedPickerSku === sku;
+                      const stockKnown =
+                        variant.stock !== undefined && variant.stock !== null;
+                      const soldOut = stockKnown && Number(variant.stock) <= 0;
+                      const original = Number(variant.originalPrice);
+                      return (
+                        <Pressable
+                          key={`${sku || "variant"}-${index}`}
+                          disabled={soldOut}
+                          onPress={() => setSelectedPickerSku(sku)}
+                          style={[
+                            s.variantOption,
+                            selected && s.variantOptionSelected,
+                            soldOut && { opacity: 0.45 },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              s.variantOptionRadio,
+                              selected && s.variantOptionRadioSelected,
+                            ]}
+                          >
+                            {selected ? (
+                              <View style={s.variantOptionRadioDot} />
+                            ) : null}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                s.variantOptionName,
+                                selected && { color: C.brand },
+                              ]}
+                            >
+                              {variantDisplayName(variant, index)}
+                            </Text>
+                            <Text style={s.variantOptionSku}>
+                              {sku ? `SKU: ${sku}` : "Standard option"}
+                              {stockKnown
+                                ? ` · ${soldOut ? "Out of stock" : `${variant.stock} available`}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: "flex-end" }}>
+                            <Text style={s.variantOptionPrice}>
+                              {money(Number(variant.price) || 0)}
+                            </Text>
+                            {original > Number(variant.price || 0) ? (
+                              <Text style={s.variantOptionOriginal}>
+                                {money(original)}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      );
+                    },
+                  )}
                 </ScrollView>
 
                 <Pressable
                   onPress={confirmVariantAdd}
-                  disabled={!selectedPickerSku || !activeVariants(variantPickerProduct).some(
-                    (variant) => String(variant.sku || "") === selectedPickerSku &&
-                      !(variant.stock !== undefined && Number(variant.stock) <= 0),
-                  )}
+                  disabled={
+                    !selectedPickerSku ||
+                    !activeVariants(variantPickerProduct).some(
+                      (variant) =>
+                        String(variant.sku || "") === selectedPickerSku &&
+                        !(
+                          variant.stock !== undefined &&
+                          Number(variant.stock) <= 0
+                        ),
+                    )
+                  }
                   style={({ pressed }) => [
                     s.variantPickerAddButton,
                     pressed && { opacity: 0.88 },
@@ -4431,7 +4953,7 @@ export default function HomeScreen() {
                   ]}
                 >
                   <LinearGradient
-                    colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                     start={{ x: 0, y: 0.5 }}
                     end={{ x: 1, y: 0.5 }}
                     style={s.variantPickerAddGradient}
@@ -4468,7 +4990,12 @@ export default function HomeScreen() {
               <View style={[s.sheet, keyboardVisible && { maxHeight: "85%" }]}>
                 <View style={s.sheetHandle} />
                 <View style={s.modalTopCloseRow}>
-                  <Pressable style={s.modalTopClose} onPress={closeLocation} accessibilityRole="button" accessibilityLabel="Close location">
+                  <Pressable
+                    style={s.modalTopClose}
+                    onPress={closeLocation}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close location"
+                  >
                     <Ionicons name="close" size={21} color={C.ink} />
                   </Pressable>
                 </View>
@@ -4594,9 +5121,7 @@ export default function HomeScreen() {
                               pressed && { opacity: 0.7 },
                             ]}
                             onPress={() =>
-                              chooseLocation(
-                                r.display_name?.trim() || short,
-                              )
+                              chooseLocation(r.display_name?.trim() || short)
                             }
                           >
                             <Ionicons
@@ -4771,7 +5296,12 @@ export default function HomeScreen() {
             <View style={s.voiceSheet}>
               <View style={s.sheetHandle} />
               <View style={s.modalTopCloseRow}>
-                <Pressable style={s.modalTopClose} onPress={closeVoice} accessibilityRole="button" accessibilityLabel="Close voice search">
+                <Pressable
+                  style={s.modalTopClose}
+                  onPress={closeVoice}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close voice search"
+                >
                   <Ionicons name="close" size={21} color={C.ink} />
                 </Pressable>
               </View>
@@ -4835,7 +5365,7 @@ export default function HomeScreen() {
                   }
                 >
                   <LinearGradient
-                    colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                     locations={[0, 0.52, 1]}
                     start={{ x: 0, y: 0.5 }}
                     end={{ x: 1, y: 0.5 }}
@@ -5111,8 +5641,18 @@ export default function HomeScreen() {
             />
             <View style={s.filterSheet}>
               <View style={s.filterHandle} />
-              <View style={[s.modalTopCloseRow, { paddingHorizontal: 18, marginTop: 2 }]}>
-                <Pressable style={s.modalTopClose} onPress={() => setFilterOpen(false)} accessibilityRole="button" accessibilityLabel="Close filters">
+              <View
+                style={[
+                  s.modalTopCloseRow,
+                  { paddingHorizontal: 18, marginTop: 2 },
+                ]}
+              >
+                <Pressable
+                  style={s.modalTopClose}
+                  onPress={() => setFilterOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close filters"
+                >
                   <Ionicons name="close" size={21} color={C.ink} />
                 </Pressable>
               </View>
@@ -5249,7 +5789,8 @@ export default function HomeScreen() {
                           { _id: "All", name: "All Categories" },
                           ...categories,
                         ].map((item: any, index: number) => {
-                          const selected = selectedCategory === String(item._id);
+                          const selected =
+                            selectedCategory === String(item._id);
                           const imageUrl = getCategoryImageUrl(item.image);
                           return (
                             <Pressable
@@ -5262,7 +5803,10 @@ export default function HomeScreen() {
                               style={({ pressed }) => [
                                 s.categoryPickerCard,
                                 selected && s.categoryPickerCardActive,
-                                pressed && { transform: [{ scale: 0.97 }], opacity: 0.92 },
+                                pressed && {
+                                  transform: [{ scale: 0.97 }],
+                                  opacity: 0.92,
+                                },
                               ]}
                               accessibilityRole="button"
                               accessibilityState={{ selected }}
@@ -5271,7 +5815,10 @@ export default function HomeScreen() {
                               <View
                                 style={[
                                   s.categoryPickerImageWrap,
-                                  { backgroundColor: TILE_TINTS[index % TILE_TINTS.length] },
+                                  {
+                                    backgroundColor:
+                                      TILE_TINTS[index % TILE_TINTS.length],
+                                  },
                                   selected && s.categoryPickerImageWrapActive,
                                 ]}
                               >
@@ -5283,12 +5830,17 @@ export default function HomeScreen() {
                                   />
                                 ) : (
                                   <Text style={s.categoryPickerFallbackIcon}>
-                                    {item.icon || (item._id === "All" ? "🛍️" : "📦")}
+                                    {item.icon ||
+                                      (item._id === "All" ? "🛍️" : "📦")}
                                   </Text>
                                 )}
                                 {selected ? (
                                   <View style={s.categoryPickerCheck}>
-                                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                                    <Ionicons
+                                      name="checkmark"
+                                      size={13}
+                                      color="#FFFFFF"
+                                    />
                                   </View>
                                 ) : null}
                               </View>
@@ -5302,7 +5854,9 @@ export default function HomeScreen() {
                                 {item.name}
                               </Text>
                               <Text style={s.categoryPickerHint}>
-                                {item._id === "All" ? "Explore everything" : "Explore category"}
+                                {item._id === "All"
+                                  ? "Explore everything"
+                                  : "Explore category"}
                               </Text>
                             </Pressable>
                           );
@@ -5686,7 +6240,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <LinearGradient
-                    colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={s.filterFooterButtonGradient}
@@ -5720,7 +6274,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <LinearGradient
-                    colors={["#4F46E5", "#6366F1", "#818CF8"]}
+                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={s.filterApplyGradient}
@@ -5741,7 +6295,7 @@ export default function HomeScreen() {
 
         <Toast toast={toast} />
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -5750,7 +6304,7 @@ export default function HomeScreen() {
 ========================================================= */
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "transparent" },
+  root: { flex: 1, backgroundColor: "#2563EB" },
   center: {
     flex: 1,
     justifyContent: "center",
@@ -5822,17 +6376,24 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
   },
   stickyHeader: {
-    backgroundColor: "#FFFFFF",
+    // No elevation while expanded: an always-on native shadow creates a
+    // visible horizontal seam between the live header and banner background.
+    backgroundColor: "transparent",
+    width: "100%",
+    alignSelf: "stretch",
     zIndex: 30,
-    elevation: 8,
-    shadowColor: "#312E81",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
+    elevation: 2,
+    shadowColor: "transparent",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
   },
   stickyHeaderCompact: {
-    backgroundColor: "#F8FAFC",
-    // shadowColor: "#111827",
+    width: "100%",
+    alignSelf: "stretch",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#312E81",
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 6,
@@ -5895,6 +6456,7 @@ const s = StyleSheet.create({
   bellBadgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
 
   searchWrap: {
+    width: "100%",
     backgroundColor: "transparent",
     paddingHorizontal: GUTTER,
     paddingTop: 10,
@@ -5902,35 +6464,38 @@ const s = StyleSheet.create({
     zIndex: 20,
   },
   searchWrapCompact: {
+    width: "100%",
     backgroundColor: "#FFFFFF",
-    paddingTop: 6,
-    paddingBottom: 6,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   searchGradientShell: {
     borderRadius: 25,
     padding: 1.5,
     overflow: "hidden",
-    shadowColor: "#a563f1",
+    shadowColor: "#6366F1",
     shadowOpacity: 0.18,
     shadowRadius: 13,
     shadowOffset: { width: 0, height: 5 },
     elevation: 4,
   },
   searchBox: {
+    width: "100%",
+    minWidth: 0,
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 15,
-    gap: 11,
+    gap: 10,
     borderWidth: 1,
-    borderColor: "#E3E1FA",
-    shadowColor: "#25205A",
+    borderColor: "rgba(99,102,241,0.22)",
+    shadowColor: "#312E81",
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.055,
+    shadowOpacity: 0.09,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 3,
   },
   searchLogo: { width: 27, height: 27 },
   searchBackBtn: {
@@ -5941,10 +6506,15 @@ const s = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     height: 52,
     fontSize: 15,
+    lineHeight: 20,
     color: C.ink,
+    paddingHorizontal: 0,
     paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
 
   /* sections */
@@ -5974,7 +6544,7 @@ const s = StyleSheet.create({
     paddingLeft: 10,
   },
   seeAllText: { color: C.brand, fontSize: 13, fontWeight: "700" },
-  shelf: { marginTop: 22 },
+  shelf: { marginTop: 22, backgroundColor: C.surface },
   shelfList: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -5985,6 +6555,7 @@ const s = StyleSheet.create({
     paddingRight: GUTTER,
   },
   grid: {
+    backgroundColor: C.surface,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "flex-start",
@@ -6034,14 +6605,14 @@ const s = StyleSheet.create({
   },
   categoryRailLabel: {
     marginTop: 3,
-    color: "#7A6B86",
+    color: C.inkSoft,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",
     textAlign: "center",
   },
   categoryRailLabelActive: {
-    color: "#54206F",
+    color: C.brandDark,
     fontWeight: "900",
   },
   categoryRailIndicator: {
@@ -6054,7 +6625,7 @@ const s = StyleSheet.create({
   },
   categoryRailIndicatorActive: {
     width: "100%",
-    backgroundColor: "#c07cff",
+    backgroundColor: "#A78BFA",
   },
 
   visualCategorySection: {
@@ -6077,9 +6648,10 @@ const s = StyleSheet.create({
     marginTop: 3,
   },
   visualCategoryList: {
-    paddingHorizontal: GUTTER,
+    paddingLeft: 0,
+    paddingRight: GUTTER,
     paddingBottom: 6,
-    columnGap: 13,
+    columnGap: 6,
   },
 
   /* Selected category landing page */
@@ -6425,9 +6997,9 @@ const s = StyleSheet.create({
     zIndex: 50,
   },
   bannerBackdrop: {
-    paddingTop: 12,
-    paddingBottom: 16,
-    backgroundColor: "#F3E8FF",
+    paddingTop: 10,
+    paddingBottom: 22,
+    backgroundColor: "#4F46E5",
   },
   dots: {
     marginTop: 10,
@@ -6467,33 +7039,35 @@ const s = StyleSheet.create({
   },
 
   catItem: {
-    width: 84,
-    minHeight: 112,
+    width: 56,
+    minHeight: 82,
     alignItems: "center",
     justifyContent: "flex-start",
     borderRadius: 18,
   },
 
-  // While the search bar is pinned, keep category navigation compact:
-  // show the names only and hide all category artwork.
+  // Compact sticky rail keeps a small category thumbnail beside its label.
   catItemCompact: {
-    minHeight: 34,
+    minHeight: 42,
     minWidth: 0,
     width: "auto",
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+    maxWidth: 150,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
-    backgroundColor: "#E0E7FF",
+    columnGap: 7,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.96)",
     borderWidth: 1,
-    borderColor: "#E0E7FF",
+    borderColor: "rgba(99,102,241,0.16)",
   },
 
   catTile: {
-    width: 72,
-    height: 72,
-    borderRadius: 21,
+    width: 48,
+    height: 48,
+    borderRadius: 15,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -6507,32 +7081,52 @@ const s = StyleSheet.create({
     shadowRadius: 6,
   },
 
+  catTileCompact: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.14)",
+  },
+
   catImage: {
+    width: "100%",
+    height: "100%",
+  },
+  catImageCompact: {
     width: "100%",
     height: "100%",
   },
 
   catFallbackIcon: {
-    fontSize: 34,
+    fontSize: 23,
+  },
+  catFallbackIconCompact: {
+    fontSize: 16,
   },
 
   catName: {
     width: "100%",
-    marginTop: 8,
+    marginTop: 5,
     color: "#302B48",
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: "700",
     textAlign: "center",
     paddingHorizontal: 2,
   },
   catNameCompact: {
     color: "#342A72",
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "800",
-    textAlign: "center",
-    paddingHorizontal: 1,
+    textAlign: "left",
+    flexShrink: 1,
+    maxWidth: 104,
+    paddingHorizontal: 0,
   },
 
   /* banner */
@@ -6754,7 +7348,7 @@ const s = StyleSheet.create({
   stepper: {
     height: 33,
     borderRadius: 9,
-    backgroundColor: "#4338F5",
+    overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -6803,10 +7397,10 @@ const s = StyleSheet.create({
     alignItems: "center",
     width: "100%",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: C.line,
     shadowColor: "#0F2F5F",
     shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 18,
   },
@@ -6928,7 +7522,7 @@ const s = StyleSheet.create({
     borderTopRightRadius: 30,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: C.line,
     shadowColor: "#0F2F5F",
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.12,
@@ -6982,7 +7576,7 @@ const s = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: C.saffron,
+    backgroundColor: C.brand,
   },
   filterMetaText: { fontSize: 11, color: C.inkSoft, fontWeight: "700" },
   filterTitle: {
@@ -7005,7 +7599,7 @@ const s = StyleSheet.create({
   filterDashboard: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: C.bg,
     minHeight: 0,
   },
   filterSidebar: {
@@ -7051,7 +7645,7 @@ const s = StyleSheet.create({
     borderBottomRightRadius: 4,
     backgroundColor: C.brand,
   },
-  filterNavTitle: { color: "#4D526F", fontSize: 10, fontWeight: "900" },
+  filterNavTitle: { color: C.inkSoft, fontSize: 10, fontWeight: "900" },
   filterNavTitleActive: { color: C.brand },
   filterNavSubtitle: {
     color: C.inkSoft,
@@ -7109,7 +7703,7 @@ const s = StyleSheet.create({
     borderColor: C.brand,
     backgroundColor: "#F4F3FF",
     shadowColor: C.brandDark,
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.1,
     shadowRadius: 9,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
@@ -7171,7 +7765,7 @@ const s = StyleSheet.create({
     minHeight: 68,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#EAE5F2",
+    borderColor: C.line,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 11,
     paddingVertical: 9,
@@ -7189,7 +7783,7 @@ const s = StyleSheet.create({
     minHeight: 66,
     borderRadius: 15,
     borderWidth: 1,
-    borderColor: "#EAE5F2",
+    borderColor: C.line,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -7276,7 +7870,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
-  filterOptionText: { fontSize: 12, fontWeight: "700", color: "#4D526F" },
+  filterOptionText: { fontSize: 12, fontWeight: "700", color: C.inkSoft },
   filterOptionTextActive: { color: "#fff" },
   filterMuted: { color: C.inkSoft, fontSize: 12, paddingVertical: 8 },
   filterPriceHeadline: {
@@ -7453,15 +8047,24 @@ const s = StyleSheet.create({
   moreBtn: {
     alignSelf: "center",
     marginTop: 9,
+    borderRadius: 23,
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  moreBtnGradient: {
     minHeight: 46,
     paddingHorizontal: 22,
     borderRadius: 23,
-    backgroundColor: C.brandSoft,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
-  moreBtnText: { color: C.brand, fontSize: 14, fontWeight: "800" },
+  moreBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   topBtnWrap: {
     position: "absolute",
     top: Platform.OS === "ios" ? 112 : 88 + 39 + 30,
@@ -7472,7 +8075,18 @@ const s = StyleSheet.create({
     zIndex: 800,
   },
   topBtn: {
+    borderRadius: 22,
+    overflow: "hidden",
+    elevation: 4,
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    color: "#ffffff",
+  },
+  topBtnGradient: {
     minHeight: 40,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -7498,7 +8112,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   topBtnText: {
-    color: C.brand,
+    color:"#ffffff",
     fontSize: 13,
     fontWeight: "800",
   },
@@ -7566,19 +8180,22 @@ const s = StyleSheet.create({
   offlineRetryBtn: {
     marginTop: 24,
     minWidth: 160,
+    borderRadius: 15,
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  offlineRetryGradient: {
     minHeight: 50,
     paddingHorizontal: 24,
-    borderRadius: 15,
-    backgroundColor: C.brand,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
-    elevation: 3,
-    shadowColor: C.brand,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    borderRadius: 15,
   },
   offlineRetryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   offlineHint: {
@@ -7630,10 +8247,14 @@ const s = StyleSheet.create({
   },
   retryBtn: {
     marginTop: 18,
+    borderRadius: 14,
+    overflow: "hidden",
+    elevation: 2,
+  },
+  retryGradient: {
     height: 46,
     paddingHorizontal: 28,
     borderRadius: 14,
-    backgroundColor: C.brand,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -7722,7 +8343,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,
-    shadowColor: "#FFE88A",
+    shadowColor: "#A5B4FC",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.65,
     shadowRadius: 7,
@@ -7806,13 +8427,13 @@ const s = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 28,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: C.line,
     minHeight: 390,
     maxHeight: "90%",
     width: "100%",
     shadowColor: "#0F2F5F",
     shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 18,
   },
@@ -7872,39 +8493,22 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  wishlistHeaderBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+  profileHeaderBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 90,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.72)",
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.12)",
+    borderColor: "rgba(255,255,255,0.72)",
     marginLeft: 8,
     marginRight: 9,
-    position: "relative",
-  },
-  wishlistCountBadge: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#dc1d1d",
-    borderWidth: 1.5,
-    borderColor: "#8B78D6",
-  },
-  wishlistCountText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "900",
-    lineHeight: 13,
-    textAlign: "center",
+    shadowColor: "#312E81",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 7,
+    elevation: 3,
   },
   quickActionText: {
     flexShrink: 1,
@@ -7973,9 +8577,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 7,
-    backgroundColor: C.saffronSoft,
+    backgroundColor: C.starSoft,
   },
-  addressTagText: { fontSize: 10.5, fontWeight: "800", color: "#92600A" },
+  addressTagText: { fontSize: 10.5, fontWeight: "800", color: C.brandDark },
   addressDetails: {
     marginTop: 4,
     fontSize: 12.5,
@@ -8145,7 +8749,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap:12,
+    gap: 12,
     justifyContent: "center",
   },
   variantPickerAddText: {
