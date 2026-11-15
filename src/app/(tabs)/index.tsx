@@ -100,12 +100,12 @@ const C = {
   brandSoft: "#EEF2FF",
   accent: "#8B5CF6",
   star: "#FBBF24",
-  bg: "#F7F7FF",
+  bg: "#FFFFFF",
   surface: "#FFFFFF",
-  ink: "#1E1B4B",
-  inkSoft: "#63638A",
-  inkMuted: "#9292B5",
-  line: "#E4E4F7",
+  ink: "#171717",
+  inkSoft: "#666666",
+  inkMuted: "#999999",
+  line: "#EEEEEE",
   success: "#15803D",
   danger: "#DC2626",
   dangerSoft: "#FEE9E9",
@@ -361,10 +361,7 @@ function CategoryHomeTile({
             : [
                 s.catName,
                 {
-                  color: "#FFFFFF",
-                  textShadowColor: "rgba(24,12,88,0.28)",
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 2,
+                  color: C.ink,
                 },
               ]
         }
@@ -732,12 +729,12 @@ function HomeSkeleton() {
   const { width } = useWindowDimensions();
   const gridW = Math.floor((width - GUTTER * 2 - GRID_GAP) / 2);
   return (
-    <View style={{ flex: 1, backgroundColor: "#2563EB" }}>
+    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <SafeAreaView
         style={[s.root, { backgroundColor: "transparent" }]}
-        edges={["left", "right"]}
+        edges={["top", "left", "right"]}
       >
-        <StatusBar style="light" backgroundColor="transparent" translucent />
+        <StatusBar style="dark" backgroundColor="#FFFFFF" translucent={false} />
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={{ backgroundColor: "transparent" }}
@@ -748,11 +745,11 @@ function HomeSkeleton() {
         >
           {/* Header: delivery row, search and the horizontal category rail */}
           <LinearGradient
-            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            colors={["#FFFFFF", "#FFFFFF", "#FFFFFF"]}
             locations={[0, 0.55, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
-            style={[s.headerHero, { paddingTop: insets.top + 8 }]}
+            style={[s.headerHero, { paddingTop: 8 }]}
           >
             {/* Soft curved light waves: matching the Odikart purple reference. */}
             <View
@@ -865,8 +862,8 @@ function HomeSkeleton() {
                         {
                           width: 48,
                           height: 48,
-                          backgroundColor: "rgba(255,255,255,0.72)",
-                          borderColor: "rgba(99,102,241,0.12)",
+                          backgroundColor: "#F5F5F5",
+                          borderColor: "#EEEEEE",
                         },
                       ]}
                     >
@@ -890,52 +887,15 @@ function HomeSkeleton() {
             </View>
           </LinearGradient>
 
-          {/* Banner carousel follows the header/category rail in the live page */}
-          <LinearGradient
-            colors={["#7C3AED", "#A78BFA", "#DBEAFE", "#FFFFFF"]}
-            locations={[0, 0.24, 0.68, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={s.bannerBackdrop}
-          >
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 420,
-                height: 180,
-                borderRadius: 220,
-                backgroundColor: "rgba(255,255,255,0.10)",
-                top: -112,
-                left: 80,
-                transform: [{ rotate: "-16deg" }],
-              }}
-            />
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 340,
-                height: 140,
-                borderRadius: 180,
-                backgroundColor: "rgba(99,102,241,0.16)",
-                top: 4,
-                right: -150,
-                transform: [{ rotate: "-20deg" }],
-              }}
-            />
+          {/* Banner skeleton: no colored background behind banner artwork. */}
+          <View style={s.bannerBackdrop}>
             <View style={{ paddingHorizontal: GUTTER }}>
               <Skeleton
                 height={Math.min(218, Math.max(174, Math.round(width * 0.49)))}
                 radius={22}
               />
             </View>
-            <View style={s.dots}>
-              <Skeleton width={18} height={6} radius={3} />
-              <Skeleton width={6} height={6} radius={3} />
-              <Skeleton width={6} height={6} radius={3} />
-            </View>
-          </LinearGradient>
+          </View>
 
           {/* Discovery shelves mirror the order of the live home page */}
           <ShelfSkeleton />
@@ -1609,7 +1569,6 @@ export default function HomeScreen() {
   // Measure the actual sticky search navbar instead of relying on a fixed 74px.
   const [stickySearchHeight, setStickySearchHeight] = useState(80);
   const [headerHeroHeight, setHeaderHeroHeight] = useState(0);
-  const [isSearchPinned, setIsSearchPinned] = useState(false);
   const [filterRowThreshold, setFilterRowThreshold] = useState<number | null>(
     null,
   );
@@ -2023,34 +1982,6 @@ export default function HomeScreen() {
     headerSurfaceProgress.setValue(y);
     const diff = y - lastY.current;
     currentScrollY.current = y;
-    // Switch the search navbar into its compact state on the very first
-    // meaningful downward movement. ScrollView's native sticky positioning
-    // then keeps this same navbar pinned as soon as it reaches the top edge.
-    const shouldPinSearch = y >= 8;
-    setIsSearchPinned((current) => {
-      if (current === shouldPinSearch) return current;
-
-      // The header background is already driven continuously by scroll position.
-      // Animate the remaining layout swap (category tiles, search spacing and
-      // compact sticky-header padding) so it never snaps at the pin threshold.
-      LayoutAnimation.configureNext({
-        duration: 260,
-        create: {
-          type: LayoutAnimation.Types.easeInEaseOut,
-          property: LayoutAnimation.Properties.opacity,
-        },
-        update: {
-          type: LayoutAnimation.Types.easeInEaseOut,
-          springDamping: 0.88,
-        },
-        delete: {
-          type: LayoutAnimation.Types.easeInEaseOut,
-          property: LayoutAnimation.Properties.opacity,
-        },
-      });
-
-      return shouldPinSearch;
-    });
     const passedFilterRow =
       filterRowThreshold !== null && y >= filterRowThreshold;
     // Reveal the filter rail only when the shopper scrolls back upward.
@@ -3407,12 +3338,12 @@ export default function HomeScreen() {
     <View style={s.root}>
       <SafeAreaView
         style={[s.root, { backgroundColor: C.surface }]}
-        edges={["left", "right"]}
+        edges={["top", "left", "right"]}
       >
         <StatusBar
-          style={isSearchPinned ? "dark" : "light"}
-          backgroundColor="transparent"
-          translucent
+          style="dark"
+          backgroundColor="#FFFFFF"
+          translucent={false}
         />
         <Animated.View
           pointerEvents="none"
@@ -3432,10 +3363,9 @@ export default function HomeScreen() {
 
         <ScrollView
           ref={mainRef}
-          // Let the hero/search/banner surfaces define the top background;
-          // the catalogue's white surface begins in child [2], after the banner.
-          // Render above the status-bar tint layer so the sticky search row
-          // remains visible when the header reaches the top on Android.
+          // Pin one combined search + category container. Keeping both inside
+          // the same sticky child ensures the search input stays above the
+          // existing category row on Android and iOS while scrolling.
           style={{ backgroundColor: "transparent", zIndex: 1, elevation: 1 }}
           stickyHeaderIndices={[1]}
           showsVerticalScrollIndicator={false}
@@ -3454,13 +3384,13 @@ export default function HomeScreen() {
           onScroll={onScroll}
           scrollEventThrottle={16}
         >
-          {/* [0] Purple-indigo gradient hero: scrolls away naturally. */}
+          {/* [0] Simple white header: scrolls away naturally. */}
           <LinearGradient
-            colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+            colors={["#FFFFFF", "#FFFFFF", "#FFFFFF"]}
             locations={[0, 0.55, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
-            style={[s.headerHero, { paddingTop: insets.top + 8 }]}
+            style={[s.headerHero, { paddingTop: 8 }]}
             onLayout={(event) => {
               const measuredHeight = Math.round(
                 event.nativeEvent.layout.height,
@@ -3475,7 +3405,7 @@ export default function HomeScreen() {
                 { backgroundColor: "#FFFFFF", opacity: whiteSurfaceOpacity },
               ]}
             />
-            {/* Layered translucent curves create the flowing purple wave treatment. */}
+            {/* Minimal white theme: decorative gradient waves removed. */}
             <View
               pointerEvents="none"
               style={{
@@ -3531,13 +3461,13 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ flexShrink: 1 }}>
                   <Text
-                    style={[s.deliverTo, { color: "rgba(255,255,255,0.78)" }]}
+                    style={[s.deliverTo, { color: "#777777" }]}
                   >
                     Deliver to
                   </Text>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Text
-                      style={[s.locationText, { color: "#FFFFFF" }]}
+                      style={[s.locationText, { color: "#171717" }]}
                       numberOfLines={1}
                     >
                       {locationLabel}
@@ -3545,7 +3475,7 @@ export default function HomeScreen() {
                     <Ionicons
                       name="chevron-down"
                       size={14}
-                      color="#FFFFFF"
+                      color="#666666"
                       style={{ marginLeft: 3 }}
                     />
                   </View>
@@ -3583,101 +3513,10 @@ export default function HomeScreen() {
             </View>
           </LinearGradient>
 
-          {/* [1] One stable sticky search/category surface; keep its top geometry constant while pinning. */}
-          <LinearGradient
-            // This is the exact bottom colour of the hero. Keep it flat so
-            // the sticky surface cannot restart a second gradient.
-            colors={["#7C3AED", "#7C3AED"]}
-            locations={[0, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            // Continue the same top-to-bottom colour flow from the hero into search and categories.
-            // Adding the status-bar inset only after pinning shifts the search input
-            // down by one safe-area height, making it appear to jump.
-            style={[
-              s.stickyHeader,
-              isSearchPinned && s.stickyHeaderCompact,
-              // The sticky header moves underneath the translucent status bar.
-              // Restore the safe-area space only while pinned so the search
-              // field remains fully visible below the system icons.
-              isSearchPinned && { paddingTop: insets.top },
-            ]}
-          >
-            {/* Decorative layers belong on this surface because search and category
-                navigation live inside the sticky header, not inside headerHero. */}
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 430,
-                height: 190,
-                borderRadius: 220,
-                backgroundColor: "rgba(255,255,255,0.075)",
-                top: -92,
-                left: -145,
-                transform: [{ rotate: "-16deg" }],
-              }}
-            />
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 350,
-                height: 165,
-                borderRadius: 190,
-                backgroundColor: "rgba(96,165,250,0.18)",
-                top: 34,
-                right: -175,
-                transform: [{ rotate: "-23deg" }],
-              }}
-            />
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 390,
-                height: 150,
-                borderRadius: 200,
-                borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.13)",
-                top: 66,
-                left: 78,
-                transform: [{ rotate: "-17deg" }],
-              }}
-            />
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                width: 260,
-                height: 115,
-                borderRadius: 140,
-                backgroundColor: "rgba(167,139,250,0.16)",
-                bottom: -52,
-                left: -72,
-                transform: [{ rotate: "18deg" }],
-              }}
-            />
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                StyleSheet.absoluteFillObject,
-                { backgroundColor: "#FFFFFF", opacity: whiteSurfaceOpacity },
-              ]}
-            />
-            <View
-              style={[s.searchWrap, isSearchPinned && s.searchWrapCompact]}
-              onLayout={(event) => {
-                const measuredHeight = Math.round(
-                  event.nativeEvent.layout.height,
-                );
-                if (measuredHeight > 0) {
-                  setStickySearchHeight((current) =>
-                    current === measuredHeight ? current : measuredHeight,
-                  );
-                }
-              }}
-            >
+          {/* [1] Sticky search container: the search icon, TextInput and
+              action buttons remain pinned together while scrolling. */}
+          <View style={s.stickyHeader}>
+            <View style={s.searchWrap}>
               <View style={s.searchBox}>
                 {searchFocused || searchActive ? (
                   <Pressable
@@ -3733,6 +3572,9 @@ export default function HomeScreen() {
                   </Pressable>
                 ) : null}
               </View>
+            </View>
+          {/* Existing category row remains directly below the sticky search input. */}
+          <View style={s.categoryRailOuter}>
               {!searchActive && !suggestionsOpen ? (
                 <>
                   {/* Visual category tiles, matching the reference shopping home. */}
@@ -3756,16 +3598,14 @@ export default function HomeScreen() {
                           );
                         }}
                         style={[
-                          isSearchPinned
-                            ? s.catItemCompact
-                            : [
-                                s.catItem,
-                                {
-                                  width: Math.floor(
-                                    (screenWidth - GUTTER - 4 * 6) / 5,
-                                  ),
-                                },
-                              ],
+                          [
+                            s.catItem,
+                            {
+                              width: Math.floor(
+                                (screenWidth - GUTTER - 4 * 6) / 5,
+                              ),
+                            },
+                          ],
                           selectedCategory === "All" && {
                             opacity: 1,
                           },
@@ -3778,40 +3618,28 @@ export default function HomeScreen() {
                       >
                         <View
                           style={[
-                            isSearchPinned
-                              ? s.catTileCompact
-                              : [s.catTile, { width: 48, height: 48 }],
+                            [s.catTile, { width: 48, height: 48 }],
                             {
                               backgroundColor:
                                 selectedCategory === "All"
                                   ? "#E0E7FF"
                                   : "#EEF2FF",
-                              borderWidth: selectedCategory === "All" ? 2 : 1,
-                              borderColor: "#6366F1",
+                              // Keep the All image clean: no selected outline or border.
+                              borderWidth: 0,
+                              borderColor: "transparent",
                             },
                           ]}
                         >
-                          <Ionicons
-                            name="grid-outline"
-                            size={isSearchPinned ? 17 : 20}
-                            color="#4F46E5"
+                          <Image
+                            source={require("../../../assets/images/all-category.webp")}
+                            style={s.catImage}
+                            resizeMode="cover"
+                            accessibilityLabel="All categories"
                           />
                         </View>
                         <Text
-                          style={
-                            isSearchPinned
-                              ? s.catNameCompact
-                              : [
-                                  s.catName,
-                                  {
-                                    color: "#FFFFFF",
-                                    textShadowColor: "rgba(24,12,88,0.28)",
-                                    textShadowOffset: { width: 0, height: 1 },
-                                    textShadowRadius: 2,
-                                  },
-                                ]
-                          }
-                          numberOfLines={isSearchPinned ? 1 : 2}
+                          style={[s.catName, { color: C.ink }]}
+                          numberOfLines={2}
                         >
                           All
                         </Text>
@@ -3821,7 +3649,7 @@ export default function HomeScreen() {
                           key={category._id}
                           category={category}
                           index={index}
-                          compact={isSearchPinned}
+                          compact={false}
                           itemWidth={Math.floor(
                             (screenWidth - GUTTER - 4 * 6) / 5,
                           )}
@@ -3832,10 +3660,10 @@ export default function HomeScreen() {
                   </View>
                 </>
               ) : null}
-            </View>
-          </LinearGradient>
+          </View>
+          </View>
 
-          {/* [2] Content: keep the catalogue surface white; the banner has its own bounded gradient. */}
+          {/* [3] White catalogue surface with image-only promotional banners. */}
           <View style={{ backgroundColor: C.surface, flex: 1 }}>
             {suggestionsOpen ? (
               <View style={s.suggestWrap}>
@@ -3980,53 +3808,9 @@ export default function HomeScreen() {
               <>
                 {selectedCategory === "All" ? (
                   <>
-                    {/* Banner carousel on a header-to-page gradient */}
+                    {/* Image-only banner carousel on the white page */}
                     {homeBanners.length > 0 ? (
-                      <LinearGradient
-                        colors={["#7C3AED", "#A78BFA", "#DBEAFE", "#FFFFFF"]}
-                        locations={[0, 0.24, 0.68, 1]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={s.bannerBackdrop}
-                      >
-                        {/* Fade the banner's surrounding gradient into the same white
-                            surface as the header while keeping banner artwork readable. */}
-                        <Animated.View
-                          pointerEvents="none"
-                          style={[
-                            StyleSheet.absoluteFillObject,
-                            {
-                              backgroundColor: "#FFFFFF",
-                              opacity: whiteSurfaceOpacity,
-                            },
-                          ]}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={{
-                            position: "absolute",
-                            width: 420,
-                            height: 180,
-                            borderRadius: 220,
-                            backgroundColor: "rgba(255,255,255,0.10)",
-                            top: -112,
-                            left: 80,
-                            transform: [{ rotate: "-16deg" }],
-                          }}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={{
-                            position: "absolute",
-                            width: 340,
-                            height: 140,
-                            borderRadius: 180,
-                            backgroundColor: "rgba(99,102,241,0.16)",
-                            top: 4,
-                            right: -150,
-                            transform: [{ rotate: "-20deg" }],
-                          }}
-                        />
+                      <View style={s.bannerBackdrop}>
                         <ScrollView
                           ref={bannerRef}
                           horizontal
@@ -4059,7 +3843,6 @@ export default function HomeScreen() {
                                 ]}
                                 onPress={() => handleBannerPress(b)}
                                 accessibilityRole="button"
-                                accessibilityLabel={b.label}
                               >
                                 <Image
                                   source={
@@ -4075,37 +3858,6 @@ export default function HomeScreen() {
                                     )
                                   }
                                 />
-                                <LinearGradient
-                                  colors={[
-                                    "rgba(24,18,110,0.88)",
-                                    "rgba(24,18,110,0.45)",
-                                    "rgba(24,18,110,0)",
-                                  ]}
-                                  start={{ x: 0, y: 0.5 }}
-                                  end={{ x: 1, y: 0.5 }}
-                                  style={StyleSheet.absoluteFill}
-                                />
-                                <View style={{ zIndex: 2, paddingLeft: 18 }}>
-                                  <Text style={s.bannerTitle}>{b.title}</Text>
-                                  <Text style={s.bannerSub}>{b.sub}</Text>
-                                  <Text style={s.bannerTagline}>
-                                    {b.tagline}
-                                  </Text>
-                                  <LinearGradient
-                                    colors={["#2563EB", "#4F46E5", "#7C3AED"]}
-                                    locations={[0, 0.52, 1]}
-                                    start={{ x: 0, y: 0.5 }}
-                                    end={{ x: 1, y: 0.5 }}
-                                    style={s.bannerBtn}
-                                  >
-                                    <Text style={s.bannerBtnText}>{b.cta}</Text>
-                                    <Ionicons
-                                      name="arrow-forward"
-                                      size={15}
-                                      color="#fff"
-                                    />
-                                  </LinearGradient>
-                                </View>
                                 {shineOn ? (
                                   <ShineLayer
                                     value={shineOn}
@@ -4130,7 +3882,7 @@ export default function HomeScreen() {
                             />
                           ))}
                         </View> */}
-                      </LinearGradient>
+                      </View>
                     ) : null}
                   </>
                 ) : null}
@@ -4147,16 +3899,16 @@ export default function HomeScreen() {
                   <>
                     {selectedCategory === "All" ? (
                       <>
-                        {shelf(
+                        {/* {shelf(
                           "trending",
                           "Trending Near You",
                           "Popular in your area",
-                        )}
-                        {shelf(
+                        )} */}
+                        {/* {shelf(
                           "bestSellers",
                           "Bestsellers",
                           "Loved by Odikart shoppers",
-                        )}
+                        )} */}
                         {shelf(
                           "popular",
                           "Popular Picks",
@@ -4168,11 +3920,11 @@ export default function HomeScreen() {
                           "Highly rated by customers",
                         )}
                         {shelf("newArrivals", "New Arrivals", "Just added")}
-                        {shelf(
+                        {/* {shelf(
                           "featured",
                           "Featured Products",
                           "Handpicked for you",
-                        )}
+                        )} */}
                         {shelf(
                           "recommended",
                           "Recommended for You",
@@ -4770,7 +4522,7 @@ export default function HomeScreen() {
               accessibilityLabel="Back to top"
             >
               <LinearGradient
-                colors={["#2563EB", "#4F46E5", "#7C3AED"]}
+                colors={["#7100fc", "#322ad3", "#aaa1a1"]}
                 start={{ x: 0, y: 0.5 }}
                 end={{ x: 1, y: 0.5 }}
                 style={s.topBtnGradient}
@@ -6304,7 +6056,7 @@ export default function HomeScreen() {
 ========================================================= */
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#2563EB" },
+  root: { flex: 1, backgroundColor: "#FFFFFF" },
   center: {
     flex: 1,
     justifyContent: "center",
@@ -6376,27 +6128,17 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
   },
   stickyHeader: {
-    // No elevation while expanded: an always-on native shadow creates a
-    // visible horizontal seam between the live header and banner background.
-    backgroundColor: "transparent",
+    // Keep the complete search bar above the sticky category rail on Android
+    // and iOS so the TextInput never gets covered while scrolling.
+    backgroundColor: "#FFFFFF",
     width: "100%",
     alignSelf: "stretch",
-    zIndex: 30,
-    elevation: 2,
+    zIndex: 50,
+    elevation: 8,
     shadowColor: "transparent",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0,
     shadowRadius: 0,
-  },
-  stickyHeaderCompact: {
-    width: "100%",
-    alignSelf: "stretch",
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#312E81",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 6,
   },
   locationBtn: {
     flex: 1,
@@ -6409,9 +6151,9 @@ const s = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "#F5F5F5",
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.12)",
+    borderColor: "#EEEEEE",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
@@ -6435,9 +6177,9 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "#F5F5F5",
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.12)",
+    borderColor: "#EEEEEE",
   },
   bellBadge: {
     position: "absolute",
@@ -6463,12 +6205,6 @@ const s = StyleSheet.create({
     paddingBottom: 10,
     zIndex: 20,
   },
-  searchWrapCompact: {
-    width: "100%",
-    backgroundColor: "#FFFFFF",
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
   searchGradientShell: {
     borderRadius: 25,
     padding: 1.5,
@@ -6490,12 +6226,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 15,
     gap: 10,
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.22)",
-    shadowColor: "#312E81",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.09,
-    shadowRadius: 8,
-    elevation: 3,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   searchLogo: { width: 27, height: 27 },
   searchBackBtn: {
@@ -6971,7 +6707,7 @@ const s = StyleSheet.create({
     minHeight: 184,
     borderRadius: 22,
     overflow: "hidden",
-    backgroundColor: C.brand,
+    backgroundColor: "transparent",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
@@ -6999,7 +6735,15 @@ const s = StyleSheet.create({
   bannerBackdrop: {
     paddingTop: 10,
     paddingBottom: 22,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "transparent",
+  },
+  categoryRailOuter: {
+    // backgroundColor: "#FFFFFF",
+    zIndex: 30,
+    borderColor: "rgb(233, 226, 246)",
+    shadowColor: "rgb(136, 106, 194)",
+    shadowOffset: { width: 0, height: 1 },
+    borderBottomWidth: 0.3,
   },
   dots: {
     marginTop: 10,
@@ -7021,12 +6765,6 @@ const s = StyleSheet.create({
     left: 0,
     width: "100%",
     height: "100%",
-  },
-  bannerTagline: {
-    marginTop: 2,
-    color: "rgba(255,255,255,0.92)",
-    fontSize: 13,
-    fontWeight: "600",
   },
 
   catGrid: {
@@ -7134,53 +6872,7 @@ const s = StyleSheet.create({
     height: 190,
     borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: C.brandDark,
-    justifyContent: "center",
-    elevation: 8,
-    shadowColor: "#1E1B6B",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-  },
-  bannerTitle: {
-    color: "#fff",
-    fontSize: 21,
-    fontWeight: "900",
-    letterSpacing: -0.4,
-  },
-  bannerSub: {
-    marginTop: 4,
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-    lineHeight: 18,
-    maxWidth: 190,
-  },
-  bannerBtn: {
-    alignSelf: "flex-start",
-    marginTop: 12,
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    overflow: "hidden",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  bannerBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-
-  /* compact product card — inspired by the supplied pickle-card reference */
-  card: {
-    backgroundColor: C.surface,
-    borderRadius: 19,
-    padding: 9,
-    borderWidth: 1,
-    borderColor: "#E8EAF3",
-    overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#25205F",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    backgroundColor: "transparent",
   },
   cardImageWrap: {
     borderRadius: 14,
@@ -8067,7 +7759,7 @@ const s = StyleSheet.create({
   moreBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   topBtnWrap: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 112 : 88 + 39 + 30,
+    top: Platform.OS === "ios" ? 112 : 88 + 39 +120,
     alignSelf: "center",
     left: 0,
     right: 0,
@@ -8499,7 +8191,7 @@ const s = StyleSheet.create({
     borderRadius: 90,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "#F5F5F5",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.72)",
     marginLeft: 8,

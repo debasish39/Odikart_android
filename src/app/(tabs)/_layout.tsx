@@ -1,3 +1,6 @@
+
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs, router } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
@@ -7,13 +10,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { Tabs, router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../../hooks/useAuth";
 
-// OdiKart indigo / purple palette
 const NAV = {
   primary: "#4F46E5",
   primaryDark: "#3730A3",
@@ -32,10 +32,6 @@ type NavItem = {
   activeIcon: keyof typeof Ionicons.glyphMap;
   fallbackPath: string;
 };
-
-// ====================================================
-// ANIMATED TAB ICON
-// ====================================================
 
 function ShiningTabIcon({
   focused,
@@ -81,7 +77,7 @@ function ShiningTabIcon({
               useNativeDriver: true,
             }),
           ]),
-        ])
+        ]),
       );
       animation.start();
     } else {
@@ -109,11 +105,6 @@ function ShiningTabIcon({
     </View>
   );
 }
-
-// ====================================================
-// FIVE-ITEM FLOATING NAVBAR
-// Home | Categories | Trending | Wishlist | Offers
-// ====================================================
 
 const NAV_ITEMS: NavItem[] = [
   {
@@ -149,7 +140,7 @@ const NAV_ITEMS: NavItem[] = [
     label: "Offers",
     icon: "pricetag-outline",
     activeIcon: "pricetag",
-    fallbackPath: "/(tabs)/offers",
+    fallbackPath: "/profile/coupons",
   },
 ];
 
@@ -163,9 +154,7 @@ function FloatingTabBar({ state, navigation }: any) {
     Animated.timing(translateY, {
       toValue: hideTabBar ? 110 : 0,
       duration: hideTabBar ? 170 : 230,
-      easing: hideTabBar
-        ? Easing.in(Easing.cubic)
-        : Easing.out(Easing.cubic),
+      easing: hideTabBar ? Easing.in(Easing.cubic) : Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [hideTabBar, translateY]);
@@ -245,10 +234,6 @@ function FloatingTabBar({ state, navigation }: any) {
   );
 }
 
-// ====================================================
-// EXPO ROUTER TABS
-// ====================================================
-
 export default function TabsLayout() {
   const { user, loading: authLoading } = useAuth();
 
@@ -286,10 +271,6 @@ export default function TabsLayout() {
   );
 }
 
-// ====================================================
-// MODERN COMPACT FLOATING NAVBAR STYLES
-// ====================================================
-
 const styles = StyleSheet.create({
   floatingWrapper: {
     position: "absolute",
@@ -298,7 +279,6 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     elevation: 16,
   },
-
   navPill: {
     minHeight: 62,
     width: "100%",
@@ -317,7 +297,6 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 11,
   },
-
   tabButton: {
     flex: 1,
     minWidth: 0,
@@ -328,32 +307,27 @@ const styles = StyleSheet.create({
     gap: 1,
     paddingHorizontal: 1,
   },
-
   activeTabButton: {
     backgroundColor: NAV.activeBg,
     borderWidth: 1,
     borderColor: NAV.activeBorder,
   },
-
   tabPressed: {
     opacity: 0.76,
     transform: [{ scale: 0.96 }],
   },
-
   iconWrap: {
     width: 27,
     height: 25,
     alignItems: "center",
     justifyContent: "center",
   },
-
   iconGlow: {
     position: "absolute",
     width: 22,
     height: 22,
     borderRadius: 14,
   },
-
   tabLabel: {
     fontSize: 9,
     lineHeight: 12,
