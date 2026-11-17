@@ -27,11 +27,11 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Share from "react-native-share";
-import { LinearGradient } from "expo-linear-gradient";
 
 import {
   Gesture,
@@ -519,8 +519,16 @@ function ZoomableViewerPage({
     .enabled(active)
     .onUpdate((event) => {
       if (scale.value <= 1) return;
-      translateX.value = savedX.value + event.translationX;
-      translateY.value = savedY.value + event.translationY;
+      const maxX = (SCREEN_WIDTH * (scale.value - 1)) / 2;
+      const maxY = (SCREEN_HEIGHT * 0.75 * (scale.value - 1)) / 2;
+      translateX.value = Math.max(
+        -maxX,
+        Math.min(maxX, savedX.value + event.translationX),
+      );
+      translateY.value = Math.max(
+        -maxY,
+        Math.min(maxY, savedY.value + event.translationY),
+      );
     })
     .onEnd(() => {
       if (scale.value <= 1) return;
@@ -620,7 +628,7 @@ function FullScreenImageViewer({
 
             <View style={styles.viewerTouchHint}>
               <Ionicons name="hand-left-outline" size={17} color="#fff" />
-              <Text style={styles.viewerTouchHintText}>Swipe • Pinch</Text>
+              <Text style={styles.viewerTouchHintText}>Pinch • Drag</Text>
             </View>
           </View>
 
@@ -653,7 +661,10 @@ function FullScreenImageViewer({
             style={styles.viewerScroll}
           >
             {images.map((image, index) => (
-              <View key={`${image}-${index}`} style={styles.viewerPage}>
+              <View
+                key={`${image}-${index}-${currentIndex}`}
+                style={styles.viewerPage}
+              >
                 <ZoomableViewerPage
                   image={image}
                   active={index === currentIndex}
@@ -663,21 +674,10 @@ function FullScreenImageViewer({
             ))}
           </ScrollView>
 
-          {/* <View
-          style={[
-            styles.viewerFooter,
-            { paddingBottom: insets.bottom + 14 },
-          ]}
-        >
-          <Text style={styles.viewerHint}>
-            Pinch to zoom • Drag to move • Double tap to zoom
-          </Text>
-          {images.length > 1 && (
-            <Text style={styles.viewerSwipeHint}>
-              Swipe left or right for more images
-            </Text>
-          )}
-        </View> */}
+          <View
+            pointerEvents="none"
+            style={[styles.viewerFooter, { paddingBottom: insets.bottom + 18 }]}
+          ></View>
         </View>
       </GestureHandlerRootView>
     </Modal>
@@ -1369,18 +1369,28 @@ export default function ProductDetailsScreen() {
           (Array.isArray(payload) ? payload : []);
         if (!cancelled && Array.isArray(list)) {
           setSimilarProducts(
-            list.filter((item: Product) => item?._id && String(item._id) !== String(product._id)).slice(0, 10),
+            list
+              .filter(
+                (item: Product) =>
+                  item?._id && String(item._id) !== String(product._id),
+              )
+              .slice(0, 10),
           );
         }
       } catch (similarError: any) {
-        console.log("SIMILAR PRODUCTS ERROR:", similarError?.response?.data || similarError?.message);
+        console.log(
+          "SIMILAR PRODUCTS ERROR:",
+          similarError?.response?.data || similarError?.message,
+        );
         if (!cancelled) setSimilarProducts([]);
       } finally {
         if (!cancelled) setSimilarLoading(false);
       }
     };
     void loadSimilarProducts();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [product?._id, product?.category, product?.categoryData]);
 
   /* =====================================================
@@ -2585,7 +2595,11 @@ export default function ProductDetailsScreen() {
     <View style={styles.container}>
       {/* Transparent system bar overlays the product image. White icons are
           paired with a subtle top scrim so they remain readable on bright photos. */}
-      <StatusBar style={showCompactNavbar ? "dark" : "light"} translucent backgroundColor="transparent" />
+      <StatusBar
+        style={showCompactNavbar ? "dark" : "light"}
+        translucent
+        backgroundColor="transparent"
+      />
 
       {/* Compact sticky product bar appears after the gallery scrolls away. */}
       {showCompactNavbar && (
@@ -2883,7 +2897,14 @@ export default function ProductDetailsScreen() {
           )}
 
           {!!product.tags?.length && (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 7,
+                marginTop: 10,
+              }}
+            >
               {product.tags.map((tag) => (
                 <View
                   key={tag}
@@ -2896,7 +2917,13 @@ export default function ProductDetailsScreen() {
                     borderColor: "#E0E7FF",
                   }}
                 >
-                  <Text style={{ color: "#4338CA", fontSize: 11, fontWeight: "700" }}>
+                  <Text
+                    style={{
+                      color: "#4338CA",
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
                     #{tag.replace(/-/g, " ")}
                   </Text>
                 </View>
@@ -2905,24 +2932,30 @@ export default function ProductDetailsScreen() {
           )}
 
           {product.offer?.enabled && (
-            <View style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 13,
-              backgroundColor: "#F5F3FF",
-              borderWidth: 1,
-              borderColor: "#DDD6FE",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 9,
-            }}>
+            <View
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 13,
+                backgroundColor: "#F5F3FF",
+                borderWidth: 1,
+                borderColor: "#DDD6FE",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 9,
+              }}
+            >
               <Ionicons name="pricetag" size={19} color="#6D28D9" />
               <View style={{ flex: 1 }}>
-                <Text style={{ color: "#5B21B6", fontSize: 13, fontWeight: "900" }}>
+                <Text
+                  style={{ color: "#5B21B6", fontSize: 13, fontWeight: "900" }}
+                >
                   {product.offer.label || "Special offer"}
                 </Text>
                 {!!product.offer.value && (
-                  <Text style={{ color: "#6D28D9", fontSize: 11, marginTop: 2 }}>
+                  <Text
+                    style={{ color: "#6D28D9", fontSize: 11, marginTop: 2 }}
+                  >
                     {product.offer.discountType === "percentage"
                       ? `${product.offer.value}% additional offer`
                       : `${formatPrice(product.offer.value)} offer`}
@@ -3071,15 +3104,18 @@ export default function ProductDetailsScreen() {
               >
                 {activeVariants.map((variant, index) => {
                   const selected =
-                    String(selectedVariant?.sku || selectedVariant?._id || index) ===
-                    String(variant.sku || variant._id || index);
+                    String(
+                      selectedVariant?.sku || selectedVariant?._id || index,
+                    ) === String(variant.sku || variant._id || index);
                   const variantStock =
                     variant.stock === undefined || variant.stock === null
                       ? null
                       : Number(variant.stock);
                   const soldOut = variantStock !== null && variantStock <= 0;
                   const label =
-                    Object.values(variant.attributes || {}).filter(Boolean).join(" • ") ||
+                    Object.values(variant.attributes || {})
+                      .filter(Boolean)
+                      .join(" • ") ||
                     variant.sku ||
                     `Option ${index + 1}`;
                   return (
@@ -3090,7 +3126,9 @@ export default function ProductDetailsScreen() {
                         setSelectedVariant(variant);
                         setSelectedOptions(
                           Object.fromEntries(
-                            Object.entries(variant.attributes || {}).map(([key, value]) => [key, String(value)]),
+                            Object.entries(variant.attributes || {}).map(
+                              ([key, value]) => [key, String(value)],
+                            ),
                           ),
                         );
                         setSelectedImage(0);
@@ -3102,19 +3140,43 @@ export default function ProductDetailsScreen() {
                         paddingVertical: 12,
                         borderRadius: 14,
                         borderWidth: 1.5,
-                        borderColor: selected ? "#4F46E5" : colors.borderLight || "#E5E7EB",
+                        borderColor: selected
+                          ? "#4F46E5"
+                          : colors.borderLight || "#E5E7EB",
                         backgroundColor: selected ? "#EEF2FF" : "#FFFFFF",
                         opacity: soldOut ? 0.48 : 1,
                       }}
                     >
-                      <Text style={{ color: selected ? "#3730A3" : colors.text, fontWeight: "800", fontSize: 13 }}>
+                      <Text
+                        style={{
+                          color: selected ? "#3730A3" : colors.text,
+                          fontWeight: "800",
+                          fontSize: 13,
+                        }}
+                      >
                         {label}
                       </Text>
-                      <Text style={{ color: "#4F46E5", fontWeight: "800", marginTop: 5 }}>
+                      <Text
+                        style={{
+                          color: "#4F46E5",
+                          fontWeight: "800",
+                          marginTop: 5,
+                        }}
+                      >
                         {formatPrice(Number(variant.price || 0))}
                       </Text>
-                      <Text style={{ color: soldOut ? colors.error : colors.textSecondary, fontSize: 11, marginTop: 3 }}>
-                        {soldOut ? "Out of stock" : variantStock === null ? "Available" : `${variantStock} in stock`}
+                      <Text
+                        style={{
+                          color: soldOut ? colors.error : colors.textSecondary,
+                          fontSize: 11,
+                          marginTop: 3,
+                        }}
+                      >
+                        {soldOut
+                          ? "Out of stock"
+                          : variantStock === null
+                            ? "Available"
+                            : `${variantStock} in stock`}
                       </Text>
                     </Pressable>
                   );
@@ -3205,32 +3267,47 @@ export default function ProductDetailsScreen() {
                 </View>
               )}
 
-              {!!(product.category && typeof product.category === "object" && product.category.name) && (
+              {!!(
+                product.category &&
+                typeof product.category === "object" &&
+                product.category.name
+              ) && (
                 <View style={styles.detailItem}>
                   <Text style={styles.detailLabel}>Category</Text>
-                  <Text style={styles.detailValue}>{product.category.name}</Text>
+                  <Text style={styles.detailValue}>
+                    {product.category.name}
+                  </Text>
                 </View>
               )}
 
-              {!!(product.subCategory && typeof product.subCategory === "object" && product.subCategory.name) && (
+              {!!(
+                product.subCategory &&
+                typeof product.subCategory === "object" &&
+                product.subCategory.name
+              ) && (
                 <View style={styles.detailItem}>
                   <Text style={styles.detailLabel}>Subcategory</Text>
-                  <Text style={styles.detailValue}>{product.subCategory.name}</Text>
+                  <Text style={styles.detailValue}>
+                    {product.subCategory.name}
+                  </Text>
                 </View>
               )}
 
               {!!selectedVariant?.weight && (
                 <View style={styles.detailItem}>
                   <Text style={styles.detailLabel}>Product weight</Text>
-                  <Text style={styles.detailValue}>{selectedVariant.weight} g</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedVariant.weight} g
+                  </Text>
                 </View>
               )}
 
-              {!!(selectedVariant?.dimensions && (
-                Number(selectedVariant.dimensions.width || 0) ||
-                Number(selectedVariant.dimensions.height || 0) ||
-                Number(selectedVariant.dimensions.depth || 0)
-              )) && (
+              {!!(
+                selectedVariant?.dimensions &&
+                (Number(selectedVariant.dimensions.width || 0) ||
+                  Number(selectedVariant.dimensions.height || 0) ||
+                  Number(selectedVariant.dimensions.depth || 0))
+              ) && (
                 <View style={styles.detailItem}>
                   <Text style={styles.detailLabel}>Package dimensions</Text>
                   <Text style={styles.detailValue}>
@@ -3238,7 +3315,10 @@ export default function ProductDetailsScreen() {
                       selectedVariant.dimensions.width,
                       selectedVariant.dimensions.height,
                       selectedVariant.dimensions.depth,
-                    ].map((value) => Number(value || 0)).join(" × ")} cm
+                    ]
+                      .map((value) => Number(value || 0))
+                      .join(" × ")}{" "}
+                    cm
                   </Text>
                 </View>
               )}
@@ -3317,25 +3397,38 @@ export default function ProductDetailsScreen() {
               </View>
             )}
 
-            {product.shipping?.freeShipping === false && product.shipping?.shippingCharge !== undefined && (
-              <View style={styles.serviceRow}>
-                <View style={styles.serviceIcon}>
-                  <Ionicons name="wallet-outline" size={22} color={colors.primary} />
+            {product.shipping?.freeShipping === false &&
+              product.shipping?.shippingCharge !== undefined && (
+                <View style={styles.serviceRow}>
+                  <View style={styles.serviceIcon}>
+                    <Ionicons
+                      name="wallet-outline"
+                      size={22}
+                      color={colors.primary}
+                    />
+                  </View>
+                  <View style={styles.serviceContent}>
+                    <Text style={styles.serviceTitle}>Shipping charge</Text>
+                    <Text style={styles.serviceText}>
+                      {formatPrice(product.shipping.shippingCharge)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.serviceContent}>
-                  <Text style={styles.serviceTitle}>Shipping charge</Text>
-                  <Text style={styles.serviceText}>{formatPrice(product.shipping.shippingCharge)}</Text>
-                </View>
-              </View>
-            )}
+              )}
 
             {!!product.shipping?.serviceablePincodes?.length && (
               <View style={styles.serviceRow}>
                 <View style={styles.serviceIcon}>
-                  <Ionicons name="location-outline" size={22} color={colors.primary} />
+                  <Ionicons
+                    name="location-outline"
+                    size={22}
+                    color={colors.primary}
+                  />
                 </View>
                 <View style={styles.serviceContent}>
-                  <Text style={styles.serviceTitle}>Currently serviceable pincodes</Text>
+                  <Text style={styles.serviceTitle}>
+                    Currently serviceable pincodes
+                  </Text>
                   <Text style={styles.serviceText}>
                     {product.shipping.serviceablePincodes.join(", ")}
                   </Text>
@@ -3649,35 +3742,120 @@ export default function ProductDetailsScreen() {
             SIMILAR PRODUCTS
         ================================================= */}
         {(similarLoading || similarProducts.length > 0) && (
-          <View style={{ marginTop: 18, paddingHorizontal: 16, paddingBottom: 18 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <View
+            style={{ marginTop: 18, paddingHorizontal: 16, paddingBottom: 18 }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
               <View>
-                <Text style={{ fontSize: 18, fontWeight: "900", color: colors.text }}>You may also like</Text>
-                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 3 }}>More products from this category</Text>
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "900",
+                    color: colors.text,
+                  }}
+                >
+                  You may also like
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: colors.textSecondary,
+                    marginTop: 3,
+                  }}
+                >
+                  More products from this category
+                </Text>
               </View>
             </View>
             {similarLoading && similarProducts.length === 0 ? (
               <ActivityIndicator color="#4F46E5" />
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 12 }}
+              >
                 {similarProducts.map((item) => {
-                  const variant = item.variants?.find((v) => v.isActive !== false) || item.variants?.[0];
-                  const image = item.media?.thumbnail || item.media?.images?.[0] || variant?.images?.[0];
+                  const variant =
+                    item.variants?.find((v) => v.isActive !== false) ||
+                    item.variants?.[0];
+                  const image =
+                    item.media?.thumbnail ||
+                    item.media?.images?.[0] ||
+                    variant?.images?.[0];
                   return (
                     <Pressable
                       key={item._id}
-                      onPress={() => router.push({ pathname: "/product/[id]", params: { id: item._id } } as any)}
-                      style={{ width: 148, padding: 10, borderRadius: 16, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8EAF5" }}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/product/[id]",
+                          params: { id: item._id },
+                        } as any)
+                      }
+                      style={{
+                        width: 148,
+                        padding: 10,
+                        borderRadius: 16,
+                        backgroundColor: "#FFFFFF",
+                        borderWidth: 1,
+                        borderColor: "#E8EAF5",
+                      }}
                     >
                       {image ? (
-                        <Image source={{ uri: image }} style={{ width: "100%", height: 112, borderRadius: 11 }} resizeMode="contain" />
+                        <Image
+                          source={{ uri: image }}
+                          style={{
+                            width: "100%",
+                            height: 112,
+                            borderRadius: 11,
+                          }}
+                          resizeMode="contain"
+                        />
                       ) : (
-                        <View style={{ width: "100%", height: 112, alignItems: "center", justifyContent: "center", backgroundColor: "#F3F4FF", borderRadius: 11 }}>
-                          <Ionicons name="image-outline" size={28} color={colors.textMuted} />
+                        <View
+                          style={{
+                            width: "100%",
+                            height: 112,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "#F3F4FF",
+                            borderRadius: 11,
+                          }}
+                        >
+                          <Ionicons
+                            name="image-outline"
+                            size={28}
+                            color={colors.textMuted}
+                          />
                         </View>
                       )}
-                      <Text numberOfLines={2} style={{ color: colors.text, fontWeight: "700", fontSize: 12, marginTop: 9, minHeight: 34 }}>{item.title}</Text>
-                      <Text style={{ color: "#4F46E5", fontWeight: "900", fontSize: 14, marginTop: 5 }}>
+                      <Text
+                        numberOfLines={2}
+                        style={{
+                          color: colors.text,
+                          fontWeight: "700",
+                          fontSize: 12,
+                          marginTop: 9,
+                          minHeight: 34,
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#4F46E5",
+                          fontWeight: "900",
+                          fontSize: 14,
+                          marginTop: 5,
+                        }}
+                      >
                         {formatPrice(Number(variant?.price || 0))}
                       </Text>
                     </Pressable>

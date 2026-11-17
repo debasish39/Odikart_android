@@ -130,6 +130,21 @@ function AppContent() {
           contentStyle: { backgroundColor: "#F8FAFC" },
         }}
       >
+        {/* Product details opens as an expandable native bottom sheet. */}
+        <Stack.Screen
+          name="products/[id]"
+          options={{
+            presentation: "formSheet",
+            sheetAllowedDetents: [0.65, 0.95],
+            sheetInitialDetentIndex: 0,
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 26,
+            sheetExpandsWhenScrolledToEdge: true,
+            gestureEnabled: true,
+            contentStyle: { backgroundColor: "#FFFFFF" },
+          }}
+        />
+
         {/* Render login as a transparent route above the screen that opened it. */}
         <Stack.Screen
           name="login-modal"

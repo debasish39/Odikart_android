@@ -1,16 +1,15 @@
-
 {
   "expo": {
     "name": "OdiKart",
     "slug": "android_odikart",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/odikart.png",
+    "icon": "./assets/images/odikart.webp",
     "scheme": "odikart",
     "userInterfaceStyle": "automatic",
 
     "ios": {
-      "icon": "./assets/images/odikart.png"
+      "icon": "./assets/images/odikart.webp"
     },
 
     "android": {
@@ -28,17 +27,14 @@
               "pathPrefix": "/products/"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
 
     "web": {
       "output": "static",
-      "favicon": "./assets/images/odikart.png"
+      "favicon": "./assets/images/odikart.webp"
     },
 
     "plugins": [
@@ -68,16 +64,12 @@
         "expo-build-properties",
         {
           "android": {
-            "buildArchs": [
-              "armeabi-v7a",
-              "arm64-v8a"
-            ]
+            "buildArchs": ["armeabi-v7a", "arm64-v8a"]
           }
         }
       ],
 
       "expo-status-bar",
-
       "./plugins/withOdiKartNative"
     ],
 

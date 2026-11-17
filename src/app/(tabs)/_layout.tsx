@@ -1,18 +1,25 @@
-
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, router } from "expo-router";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../../hooks/useAuth";
+import {
+  getWishlistFlyTarget,
+  setWishlistFlyTarget,
+  subscribeWishlistFly,
+  type WishlistFlySource,
+} from "../utils/wishlistFly";
 
 const NAV = {
   primary: "#4F46E5",
@@ -144,11 +151,135 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+function WishlistFlyOverlay() {
+  const [visible, setVisible] = useState(false);
+  const [imageUri, setImageUri] = useState("");
+  const left = useRef(new Animated.Value(0)).current;
+  const top = useRef(new Animated.Value(0)).current;
+  const width = useRef(new Animated.Value(1)).current;
+  const height = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    return subscribeWishlistFly((source: WishlistFlySource) => {
+      const target = getWishlistFlyTarget();
+      if (!target || !source.imageUri) return;
+
+      left.stopAnimation();
+      top.stopAnimation();
+      width.stopAnimation();
+      height.stopAnimation();
+      opacity.stopAnimation();
+      scale.stopAnimation();
+
+      left.setValue(source.x);
+      top.setValue(source.y);
+      width.setValue(Math.max(38, Math.min(source.width, 116)));
+      height.setValue(Math.max(38, Math.min(source.height, 116)));
+      opacity.setValue(1);
+      scale.setValue(1);
+      setImageUri(source.imageUri);
+      setVisible(true);
+
+      Animated.parallel([
+        Animated.timing(left, {
+          toValue: target.x - 15,
+          duration: 680,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.timing(top, {
+          toValue: target.y - 15,
+          duration: 680,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.timing(width, {
+          toValue: 30,
+          duration: 680,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.timing(height, {
+          toValue: 30,
+          duration: 680,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.sequence([
+          Animated.delay(430),
+          Animated.timing(opacity, {
+            toValue: 0.25,
+            duration: 250,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.delay(520),
+          Animated.spring(scale, {
+            toValue: 0.55,
+            speed: 24,
+            bounciness: 5,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(({ finished }) => {
+        if (finished) setVisible(false);
+      });
+    });
+  }, [height, left, opacity, scale, top, width]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={() => setVisible(false)}
+    >
+      <View pointerEvents="none" style={styles.flyOverlay}>
+        <Animated.View
+          style={[
+            styles.flyImageFrame,
+            {
+              left,
+              top,
+              width,
+              height,
+              opacity,
+              transform: [{ scale }],
+            },
+          ]}
+        >
+          <Animated.Image
+            source={{ uri: imageUri }}
+            resizeMode="contain"
+            style={styles.flyImage}
+          />
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
 function FloatingTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(0)).current;
+  const wishlistTabRef = useRef<View>(null);
   const currentRoute = state.routes[state.index];
   const hideTabBar = currentRoute?.params?.hideTabBar === true;
+
+  const measureWishlistTarget = () => {
+    requestAnimationFrame(() => {
+      wishlistTabRef.current?.measureInWindow((x, y, width, height) => {
+        setWishlistFlyTarget({
+          x: x + width / 2,
+          y: y + height / 2,
+        });
+      });
+    });
+  };
 
   useEffect(() => {
     Animated.timing(translateY, {
@@ -157,6 +288,8 @@ function FloatingTabBar({ state, navigation }: any) {
       easing: hideTabBar ? Easing.in(Easing.cubic) : Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+
+    if (!hideTabBar) measureWishlistTarget();
   }, [hideTabBar, translateY]);
 
   const handleTabPress = (item: NavItem) => {
@@ -179,58 +312,63 @@ function FloatingTabBar({ state, navigation }: any) {
   };
 
   return (
-    <Animated.View
-      pointerEvents={hideTabBar ? "none" : "box-none"}
-      style={[
-        styles.floatingWrapper,
-        {
-          bottom: Math.max(insets.bottom, 8) + 5,
-          transform: [{ translateY }],
-        },
-      ]}
-    >
-      <View style={styles.navPill}>
-        {NAV_ITEMS.map((item) => {
-          const focused = currentRoute?.name === item.name;
-          const color = focused ? NAV.primary : NAV.inactive;
+    <>
+      <Animated.View
+        pointerEvents={hideTabBar ? "none" : "box-none"}
+        style={[
+          styles.floatingWrapper,
+          {
+            bottom: Math.max(insets.bottom, 8) + 5,
+            transform: [{ translateY }],
+          },
+        ]}
+      >
+        <View style={styles.navPill}>
+          {NAV_ITEMS.map((item) => {
+            const focused = currentRoute?.name === item.name;
+            const color = focused ? NAV.primary : NAV.inactive;
 
-          return (
-            <Pressable
-              key={item.name}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: focused }}
-              accessibilityLabel={`${item.label} tab`}
-              onPress={() => handleTabPress(item)}
-              style={({ pressed }) => [
-                styles.tabButton,
-                focused && styles.activeTabButton,
-                pressed && styles.tabPressed,
-              ]}
-            >
-              <ShiningTabIcon
-                focused={focused}
-                color={color}
-                iconName={focused ? item.activeIcon : item.icon}
-              />
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.85}
-                style={[
-                  styles.tabLabel,
-                  {
-                    color,
-                    fontWeight: focused ? "800" : "600",
-                  },
+            return (
+              <Pressable
+                key={item.name}
+                ref={item.name === "wishlist" ? wishlistTabRef : undefined}
+                onLayout={item.name === "wishlist" ? measureWishlistTarget : undefined}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: focused }}
+                accessibilityLabel={`${item.label} tab`}
+                onPress={() => handleTabPress(item)}
+                style={({ pressed }) => [
+                  styles.tabButton,
+                  focused && styles.activeTabButton,
+                  pressed && styles.tabPressed,
                 ]}
               >
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </Animated.View>
+                <ShiningTabIcon
+                  focused={focused}
+                  color={color}
+                  iconName={focused ? item.activeIcon : item.icon}
+                />
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                  style={[
+                    styles.tabLabel,
+                    {
+                      color,
+                      fontWeight: focused ? "800" : "600",
+                    },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
+      <WishlistFlyOverlay />
+    </>
   );
 }
 
@@ -333,5 +471,26 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     textAlign: "center",
     letterSpacing: 0,
+  },
+  flyOverlay: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+  flyImageFrame: {
+    position: "absolute",
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+    shadowColor: "#312E81",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 9,
+    elevation: 12,
+  },
+  flyImage: {
+    width: "100%",
+    height: "100%",
   },
 });

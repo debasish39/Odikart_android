@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -9,6 +8,7 @@ import {
     Modal,
     Pressable,
     RefreshControl,
+    ScrollView,
     StatusBar,
     ToastAndroid,
     Platform,
@@ -48,6 +48,9 @@ type Product = {
   thumbnail?: any;
   mainImage?: any;
   primaryImage?: any;
+  coverImage?: any;
+  featuredImage?: any;
+  productImages?: any[];
   images?: any[];
   media?: { thumbnail?: any; images?: any[] };
   variants?: any[];
@@ -84,30 +87,77 @@ const unwrapProducts = (response: any): Product[] => {
 
 const idOf = (p: Product) => String(p._id || p.id || "");
 const nameOf = (p: Product) => p.name || p.title || "Product";
-const imageValue = (v: any): string => {
-  if (typeof v === "string") return v.trim();
-  if (v && typeof v === "object")
-    return String(v.url || v.uri || v.secure_url || v.src || v.path || "");
+// Accepts common image URL formats returned by MongoDB, Cloudinary and APIs.
+const imageValue = (value: any): string => {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+
+  const possibleValues = [
+    value.url,
+    value.uri,
+    value.secure_url,
+    value.secureUrl,
+    value.src,
+    value.path,
+    value.publicUrl,
+    value.imageUrl,
+    value.image,
+    value.original,
+    value.full,
+    value.large,
+    value.medium,
+    value.thumbnail,
+  ];
+
+  for (const candidate of possibleValues) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
   return "";
 };
-const imageOf = (p: Product) => {
+
+const isUsableImageUri = (uri: string) =>
+  /^(https?:\/\/|file:\/\/|content:\/\/|data:image\/)/i.test(uri);
+
+const imageListOf = (product: Product): string[] => {
   const variant =
-    (p.variants || []).find((v) => v?.isActive !== false) || p.variants?.[0];
+    (product.variants || []).find((item: any) => item?.isActive !== false) ||
+    product.variants?.[0];
+
   const candidates = [
-    p.media?.thumbnail,
-    p.media?.images?.[0],
-    p.images?.[0],
-    p.mainImage,
-    p.primaryImage,
-    p.image,
-    p.imageUrl,
-    p.thumbnail,
+    // Common product-level image fields
+    ...(Array.isArray(product.media?.images) ? product.media.images : []),
+    ...(Array.isArray(product.images) ? product.images : []),
+    ...(Array.isArray((product as any).productImages)
+      ? (product as any).productImages
+      : []),
+    (product as any).coverImage,
+    (product as any).featuredImage,
+    (product as any).imageUrl,
+    (product as any).imageURL,
+    (product as any).mainImage,
+    (product as any).primaryImage,
+    (product as any).thumbnail,
+    (product as any).image,
+    product.media?.thumbnail,
+
+    // Variant images
+    ...(Array.isArray(variant?.images) ? variant.images : []),
     variant?.image,
     variant?.imageUrl,
-    variant?.images?.[0],
+    variant?.thumbnail,
   ];
-  return candidates.map(imageValue).find((v) => /^https?:\/\//i.test(v)) || "";
+
+  const urls = candidates
+    .map(imageValue)
+    .filter((uri) => uri.length > 0 && isUsableImageUri(uri));
+
+  return [...new Set(urls)];
 };
+
+const imageOf = (product: Product) => imageListOf(product)[0] || "";
+
 const priceOf = (p: Product) => {
   const variant = (p.variants || [])
     .filter((v) => v?.isActive !== false && Number.isFinite(Number(v?.price)))
@@ -173,6 +223,113 @@ const categoryOf = (p: Product) => {
 };
 const ratingOf = (p: Product) => Number(p.averageRating ?? p.rating ?? 0) || 0;
 const money = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
+
+const ProductImageCarousel = ({
+  images,
+  fallback,
+  productName,
+}: {
+  images: string[];
+  fallback: string;
+  productName: string;
+}) => {
+  const [layout, setLayout] = useState({ width: 0, height: 0 });
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<string[]>([]);
+  const slides = (images.length ? images : fallback ? [fallback] : []).filter(
+    (uri) => !failedImages.includes(uri),
+  );
+
+  useEffect(() => {
+    setActiveIndex(0);
+    setFailedImages([]);
+  }, [images.join("|")]);
+
+  const handleImageError = (uri: string, error: any) => {
+    console.log("TRENDING PRODUCT IMAGE LOAD FAILED:", {
+      product: productName,
+      uri,
+      error: error?.nativeEvent?.error || error?.message || error,
+    });
+    setFailedImages((current) =>
+      current.includes(uri) ? current : [...current, uri],
+    );
+  };
+
+  return (
+    <View
+      style={s.carouselWrap}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setLayout({ width, height });
+      }}
+    >
+      {slides.length > 0 && layout.width > 0 && layout.height > 0 ? (
+        <>
+          <ScrollView
+            style={StyleSheet.absoluteFill}
+            contentContainerStyle={{ height: layout.height }}
+            horizontal
+            pagingEnabled
+            nestedScrollEnabled
+            directionalLockEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(event) => {
+              setActiveIndex(
+                Math.max(
+                  0,
+                  Math.min(
+                    slides.length - 1,
+                    Math.round(event.nativeEvent.contentOffset.x / layout.width),
+                  ),
+                ),
+              );
+            }}
+          >
+            {slides.map((uri, index) => (
+              <Image
+                key={`${uri}-${index}`}
+                source={{ uri }}
+                style={{ width: layout.width, height: layout.height }}
+                resizeMode="contain"
+                onLoad={() =>
+                  console.log("TRENDING PRODUCT IMAGE LOADED:", {
+                    product: productName,
+                    uri,
+                    width: layout.width,
+                    height: layout.height,
+                  })
+                }
+                onError={(event) => handleImageError(uri, event)}
+              />
+            ))}
+          </ScrollView>
+
+          {slides.length > 1 ? (
+            <View pointerEvents="none" style={s.carouselDots}>
+              {slides.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    s.carouselDot,
+                    activeIndex === index && s.carouselDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : (
+        <View style={s.noImage}>
+          <Ionicons name="image-outline" size={34} color="#A6A8B5" />
+          <Text style={s.noImageText}>
+            {images.length || fallback ? "Loading image…" : "Image coming soon"}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 export default function TrendingProductsScreen() {
   const router = useRouter();
@@ -240,6 +397,22 @@ export default function TrendingProductsScreen() {
           return true;
         });
         setProducts(list);
+        console.log(
+          "TRENDING PRODUCT IMAGE CHECK:",
+          list.map((product) => ({
+            name: nameOf(product),
+            extractedImages: imageListOf(product),
+            imageFields: {
+              image: product.image,
+              imageUrl: product.imageUrl,
+              images: product.images,
+              media: product.media,
+              mainImage: product.mainImage,
+              primaryImage: product.primaryImage,
+              productImages: (product as any).productImages,
+            },
+          })),
+        );
         setWishlistIds(wishlist ? getWishlistProductIds(wishlist) : []);
         await syncCart().catch((e) => console.log("TRENDING CART SYNC:", e));
       } catch (e: any) {
@@ -416,6 +589,7 @@ export default function TrendingProductsScreen() {
     const out = stock !== null && stock <= 0;
     const saved = wishlistIds.includes(id);
     const uri = imageOf(item);
+    const productImages = imageListOf(item);
     const reviews = Number(item.reviewCount ?? item.numReviews ?? 0);
 
     return (
@@ -426,18 +600,11 @@ export default function TrendingProductsScreen() {
           accessibilityRole="button"
           accessibilityLabel={`View ${nameOf(item)}`}
         >
-          {uri ? (
-            <Image
-              source={{ uri }}
-              style={s.productImage}
-              resizeMode="contain"
-            />
-          ) : (
-            <View style={s.noImage}>
-              <Ionicons name="image-outline" size={34} color="#A6A8B5" />
-              <Text style={s.noImageText}>Image coming soon</Text>
-            </View>
-          )}
+          <ProductImageCarousel
+            images={productImages}
+            fallback={uri}
+            productName={nameOf(item)}
+          />
 
           {discount > 0 ? (
             <View style={s.discount}>
@@ -506,54 +673,7 @@ export default function TrendingProductsScreen() {
             ) : null}
           </View>
 
-          {out ? (
-            <View style={s.out}>
-              <Text style={s.outText}>Currently unavailable</Text>
-            </View>
-          ) : qty > 0 ? (
-            <View style={s.qty}>
-              <Pressable
-                style={s.qtyButton}
-                onPress={() => changeQuantity(item, "minus")}
-                disabled={busyId === id}
-                accessibilityRole="button"
-                accessibilityLabel="Decrease quantity"
-              >
-                <Ionicons name="remove" size={17} color="#FFFFFF" />
-              </Pressable>
-              {busyId === id ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={s.qtyText}>{qty} in cart</Text>
-              )}
-              <Pressable
-                style={s.qtyButton}
-                onPress={() => changeQuantity(item, "plus")}
-                disabled={busyId === id}
-                accessibilityRole="button"
-                accessibilityLabel="Increase quantity"
-              >
-                <Ionicons name="add" size={17} color="#FFFFFF" />
-              </Pressable>
-            </View>
-          ) : (
-            <Pressable
-              style={[s.add, busyId === id && s.addBusy]}
-              disabled={busyId === id}
-              onPress={() => addProduct(item)}
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${nameOf(item)} to cart`}
-            >
-              {busyId === id ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <Ionicons name="add" size={17} color="#FFFFFF" />
-                  <Text style={s.addText}>ADD TO CART</Text>
-                </>
-              )}
-            </Pressable>
-          )}
+
         </View>
       </View>
     );
@@ -562,32 +682,92 @@ export default function TrendingProductsScreen() {
   if (loading)
     return (
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
-        <StatusBar hidden={false} translucent={false} barStyle="light-content" backgroundColor="#4338CA" />
-        <LinearGradient
-          colors={["#4338CA", "#6D28D9", "#4F46E5"]}
-          style={s.header}
-        >
+        <StatusBar hidden={false} translucent={false} barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <View style={s.stickyTopBar}>
           <View style={s.top}>
-            <Pressable onPress={() => router.back()} style={s.back}>
-              <Ionicons name="arrow-back" size={22} color="#fff" />
-            </Pressable>
-            <Text style={s.headerTitle}>Trending Products</Text>
-            <View style={s.cart}>
-              <Ionicons name="cart-outline" size={22} color="#fff" />
-            </View>
+            <View style={s.skeletonBack} />
+            <View style={s.skeletonHeaderTitle} />
+            <View style={s.skeletonCart} />
           </View>
-          <Text style={s.subtitle}>Discover what everyone is loving</Text>
-        </LinearGradient>
-        <View style={s.loading}>
-          <ActivityIndicator size="large" color="#4F46E5" />
-          <Text style={s.loadingText}>Finding trending products...</Text>
+        </View>
+        <View style={s.skeletonHeader}>
+          <View style={s.skeletonSubtitle} />
+          <View style={s.skeletonHero}>
+            <View style={s.skeletonHeroText}>
+              <View style={s.skeletonPill} />
+              <View style={s.skeletonHeroLine} />
+              <View style={[s.skeletonHeroLine, { width: "62%" }]} />
+              <View style={s.skeletonHeroCaption} />
+              <View style={[s.skeletonHeroCaption, { width: "65%" }]} />
+            </View>
+            <View style={s.skeletonHeroArtwork} />
+          </View>
+        </View>
+        <View style={s.skeletonSection}>
+          <View>
+            <View style={s.skeletonSectionTitle} />
+            <View style={s.skeletonSectionSub} />
+          </View>
+          <View style={s.skeletonSort} />
+        </View>
+        <View style={s.skeletonChips}>
+          {[76, 88, 72, 82].map((width, index) => (
+            <View key={index} style={[s.skeletonChip, { width }]} />
+          ))}
+        </View>
+        <View style={s.skeletonGrid}>
+          {[0, 1].map((row) => (
+            <View key={row} style={s.skeletonRow}>
+              {[0, 1].map((col) => (
+                <View key={col} style={s.skeletonCard}>
+                  <View style={s.skeletonImageWrap}>
+                    <View style={s.skeletonSquareImage} />
+                    <View style={s.skeletonDiscount} />
+                    <View style={s.skeletonHeart} />
+                    <View style={s.skeletonTrending} />
+                  </View>
+                  <View style={s.skeletonCardInfo}>
+                    <View style={s.skeletonMetaRow}>
+                      <View style={s.skeletonCategory} />
+                      <View style={s.skeletonRating} />
+                    </View>
+                    <View style={s.skeletonProductName} />
+                    <View style={[s.skeletonProductName, { width: "68%" }]} />
+                    <View style={s.skeletonPrice} />
+                    <View style={s.skeletonAddButton} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ))}
         </View>
       </SafeAreaView>
     );
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
-      <StatusBar hidden={false} translucent={false} barStyle="light-content" backgroundColor="#4338CA" />
+      <StatusBar hidden={false} translucent={false} barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={s.stickyTopBar}>
+        <View style={s.top}>
+          <Pressable onPress={() => router.back()} style={s.back}>
+            <Ionicons name="arrow-back" size={21} color="#3730A3" />
+          </Pressable>
+          <Text style={s.headerTitle}>Trending Products</Text>
+          <Pressable
+            onPress={() => router.push("/cart" as any)}
+            style={s.cart}
+          >
+            <Ionicons name="cart-outline" size={21} color="#3730A3" />
+            {cartCount > 0 && (
+              <View style={s.cartBadge}>
+                <Text style={s.cartBadgeText}>
+                  {cartCount > 99 ? "99+" : cartCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+      </View>
       <FlatList
         style={s.pageContent}
         data={visibleProducts}
@@ -607,29 +787,7 @@ export default function TrendingProductsScreen() {
         }
         ListHeaderComponent={
           <>
-            <LinearGradient
-              colors={["#4338CA", "#6D28D9", "#4F46E5"]}
-              style={s.header}
-            >
-              <View style={s.top}>
-                <Pressable onPress={() => router.back()} style={s.back}>
-                  <Ionicons name="arrow-back" size={22} color="#fff" />
-                </Pressable>
-                <Text style={s.headerTitle}>Trending Products</Text>
-                <Pressable
-                  onPress={() => router.push("/cart" as any)}
-                  style={s.cart}
-                >
-                  <Ionicons name="cart-outline" size={22} color="#fff" />
-                  {cartCount > 0 && (
-                    <View style={s.cartBadge}>
-                      <Text style={s.cartBadgeText}>
-                        {cartCount > 99 ? "99+" : cartCount}
-                      </Text>
-                    </View>
-                  )}
-                </Pressable>
-              </View>
+            <View style={s.header}>
               <Text style={s.subtitle}>Discover what everyone is loving</Text>
               <View style={s.hero}>
                 <View style={s.bannerGlowOne} />
@@ -639,7 +797,7 @@ export default function TrendingProductsScreen() {
                     <Ionicons name="flash" size={11} color="#FDE68A" />
                     <Text style={s.eyebrow}>ODIKART • TRENDING PICKS</Text>
                   </View>
-                  <Text style={s.heroTitle}>What's hot{"\\n"}right now?</Text>
+                  <Text style={s.heroTitle}>What's hot right now?</Text>
                   <Text style={s.heroCaption}>
                     Fresh finds and shopper favourites, all in one place.
                   </Text>
@@ -650,17 +808,17 @@ export default function TrendingProductsScreen() {
                 </View>
                 <View style={s.heroArtwork}>
                   <View style={s.artworkCircle}>
-                    <Ionicons name="flame" size={43} color="#fff" />
+                    <Ionicons name="flame" size={43} color="#6D28D9" />
                   </View>
                   <View style={s.artworkSparkle}>
-                    <Ionicons name="sparkles" size={18} color="#FDE68A" />
+                    <Ionicons name="sparkles" size={18} color="#7C3AED" />
                   </View>
                   <View style={s.artworkMini}>
                     <Ionicons name="trending-up" size={18} color="#4F46E5" />
                   </View>
                 </View>
               </View>
-            </LinearGradient>
+            </View>
             <View style={s.section}>
               <View>
                 <Text style={s.sectionTitle}>Trending now</Text>
@@ -865,14 +1023,26 @@ const s = StyleSheet.create({
   alertButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
 
   // Indigo behind the protected status-bar inset; page content starts below it.
-  safe: { flex: 1, backgroundColor: "#4338CA" },
-  pageContent: { flex: 1, backgroundColor: "#F7F7FC" },
+  safe: { flex: 1, backgroundColor: "#FFFFFF" },
+  stickyTopBar: {
+    zIndex: 20,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 18,
+    paddingTop: 7,
+    paddingBottom: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#EEEFF5",
+  },
+  pageContent: {
+    flex: 1,
+    backgroundColor: "#F7F8FC",
+    marginBottom: 39,
+  },
   header: {
     paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 22,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
+    paddingTop: 7,
+    paddingBottom: 10,
+    backgroundColor: "#FFFFFF",
   },
   top: {
     height: 46,
@@ -881,19 +1051,23 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
   },
   back: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    backgroundColor: "#F3F1FF",
+    borderWidth: 1,
+    borderColor: "#E9E5FF",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { color: "#fff", fontSize: 18, fontWeight: "800" },
+  headerTitle: { color: "#19172B", fontSize: 18, fontWeight: "900", letterSpacing: -0.35 },
   cart: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    backgroundColor: "#F3F1FF",
+    borderWidth: 1,
+    borderColor: "#E9E5FF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -911,58 +1085,68 @@ const s = StyleSheet.create({
   },
   cartBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
   subtitle: {
-    color: "rgba(255,255,255,0.78)",
+    color: "#858397",
     fontSize: 12,
-    marginTop: 2,
-    marginLeft: 48,
+    fontWeight: "500",
+    marginTop: 3,
+    marginLeft: 53,
   },
   hero: {
-    marginTop: 18, minHeight: 194, borderRadius: 25, padding: 18,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    overflow: "hidden", backgroundColor: "rgba(255,255,255,0.13)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.24)",
+    marginTop: 18,
+    minHeight: 184,
+    borderRadius: 24,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    overflow: "hidden",
+    backgroundColor: "#F1EEFF",
+    borderWidth: 1,
+    borderColor: "#E7E1FF",
   },
   bannerGlowOne: {
     position: "absolute", width: 190, height: 190, borderRadius: 95,
-    right: -48, top: -85, backgroundColor: "rgba(255,255,255,0.09)",
+    right: -48, top: -85, backgroundColor: "rgba(139,92,246,0.09)",
   },
   bannerGlowTwo: {
     position: "absolute", width: 130, height: 130, borderRadius: 65,
-    right: 40, bottom: -95, backgroundColor: "rgba(196,181,253,0.13)",
+    right: 40, bottom: -95, backgroundColor: "rgba(99,102,241,0.10)",
   },
   heroContent: { flex: 1, paddingRight: 5, zIndex: 1 },
   bannerPill: {
     alignSelf: "flex-start", flexDirection: "row", alignItems: "center",
-    gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
+    backgroundColor: "#E5DEFF",
   },
-  eyebrow: { color: "#F5F3FF", fontSize: 8, fontWeight: "900", letterSpacing: 1.05 },
+  eyebrow: { color: "#5B45B5", fontSize: 8, fontWeight: "900", letterSpacing: 1.05 },
   heroTitle: {
-    color: "#fff", fontSize: 27, lineHeight: 31, fontWeight: "900",
+    color: "#211A45", fontSize: 27, lineHeight: 31, fontWeight: "900",
     marginTop: 12, letterSpacing: -0.6,
   },
   heroCaption: {
-    color: "rgba(255,255,255,0.86)", fontSize: 11, lineHeight: 16,
+    color: "#6F6A87", fontSize: 11, lineHeight: 16,
     marginTop: 8, maxWidth: 205,
   },
   bannerFoot: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 13 },
-  bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#FDE68A" },
-  bannerFootText: { color: "#EDE9FE", fontSize: 9, fontWeight: "700" },
+  bannerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#8B5CF6" },
+  bannerFootText: { color: "#6D5AA8", fontSize: 9, fontWeight: "700" },
   heroArtwork: { width: 105, height: 132, alignItems: "center", justifyContent: "center", zIndex: 1 },
   artworkCircle: {
     width: 82, height: 82, borderRadius: 28,
-    backgroundColor: "rgba(255,255,255,0.2)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.32)", alignItems: "center",
+    backgroundColor: "#FFFFFF", borderWidth: 1,
+    borderColor: "#DDD4FF", alignItems: "center",
     justifyContent: "center", transform: [{ rotate: "8deg" }],
+    elevation: 5, shadowColor: "#6D28D9", shadowOpacity: 0.10,
+    shadowRadius: 12, shadowOffset: { width: 0, height: 5 },
   },
   artworkSparkle: {
     position: "absolute", top: 4, right: 2, width: 34, height: 34,
-    borderRadius: 17, backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 17, backgroundColor: "#E5DEFF",
     alignItems: "center", justifyContent: "center",
   },
   artworkMini: {
     position: "absolute", bottom: 4, left: 2, width: 36, height: 36,
-    borderRadius: 13, backgroundColor: "#fff", alignItems: "center",
+    borderRadius: 13, backgroundColor: "#FFFFFF", alignItems: "center",
     justifyContent: "center", elevation: 4,
   },
   list: { paddingBottom: 12 },
@@ -974,8 +1158,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  sectionTitle: { color: "#17152B", fontSize: 19, fontWeight: "900" },
-  sectionSub: { color: "#8A8FA0", fontSize: 11, marginTop: 4 },
+  sectionTitle: { color: "#19172B", fontSize: 20, fontWeight: "900", letterSpacing: -0.5 },
+  sectionSub: { color: "#8B899B", fontSize: 11, marginTop: 5 },
   sortButton: {
     height: 35,
     borderRadius: 11,
@@ -1023,35 +1207,63 @@ const s = StyleSheet.create({
   chipText: { color: "#626779", fontSize: 11, fontWeight: "700" },
   chipTextActive: { color: "#fff" },
   row: {
-    paddingHorizontal: 13,
-    gap: 11,
-    marginBottom: 13,
+    paddingHorizontal: 15,
+    gap: 10,
+    marginBottom: 16,
     alignItems: "stretch",
   },
   card: {
     flex: 1,
     minWidth: 0,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#ECECF5",
-    elevation: 2,
-    shadowColor: "#25215A",
-    shadowOpacity: 0.055,
+    borderColor: "#E6E8F2",
+    elevation: 3,
+    shadowColor: "#241C85",
+    shadowOpacity: 0.07,
     shadowRadius: 9,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 4 },
   },
   imageArea: {
-    height: 158,
-    backgroundColor: "#F7F7FF",
+    width: "100%",
+    aspectRatio: 1.32,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    padding: 13,
+    padding: 8,
   },
-  productImage: {
+  carouselWrap: {
+    // Use normal layout sizing inside imageArea. An absolutely-filled child
+    // can report 0x0 on some Android layouts and leave the loader visible.
     width: "100%",
     height: "100%",
+    overflow: "hidden",
+  },
+
+  carouselDots: {
+    position: "absolute",
+    bottom: 7,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.82)",
+  },
+  carouselDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#C7C8D4",
+  },
+  carouselDotActive: {
+    width: 13,
+    backgroundColor: "#4F46E5",
   },
   noImage: {
     flex: 1,
@@ -1105,9 +1317,9 @@ const s = StyleSheet.create({
     position: "absolute",
     right: 9,
     top: 9,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 29,
+    height: 29,
+    borderRadius: 15,
     backgroundColor: "rgba(255,255,255,0.97)",
     alignItems: "center",
     justifyContent: "center",
@@ -1118,12 +1330,12 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   info: {
-    paddingHorizontal: 11,
-    paddingTop: 11,
-    paddingBottom: 11,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   categoryRow: {
-    minHeight: 17,
+    minHeight: 15,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1150,12 +1362,13 @@ const s = StyleSheet.create({
     letterSpacing: 0.3,
   },
   name: {
-    color: "#202238",
-    fontSize: 12,
+    color: "#24213A",
+    fontSize: 13,
     lineHeight: 17,
     fontWeight: "800",
-    marginTop: 6,
+    marginTop: 5,
     minHeight: 34,
+    letterSpacing: -0.1,
   },
   rating: {
     flexDirection: "row",
@@ -1175,31 +1388,35 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: 8,
-    minHeight: 23,
+    marginTop: 5,
+    minHeight: 21,
   },
   price: {
-    color: "#17152B",
+    color: "#19152F",
     fontSize: 16,
     fontWeight: "900",
-    letterSpacing: -0.35,
+    letterSpacing: -0.45,
   },
   original: {
     color: "#A1A4AE",
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "600",
     textDecorationLine: "line-through",
   },
   add: {
-    height: 36,
-    borderRadius: 11,
-    marginTop: 9,
+    height: 30,
+    borderRadius: 10,
+    marginTop: 7,
     backgroundColor: "#4F46E5",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    elevation: 1,
+    gap: 5,
+    elevation: 2,
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
   addBusy: {
     opacity: 0.75,
@@ -1208,12 +1425,12 @@ const s = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "900",
-    letterSpacing: 0.45,
+    letterSpacing: 0.25,
   },
   qty: {
-    height: 36,
-    marginTop: 9,
-    borderRadius: 11,
+    height: 30,
+    marginTop: 7,
+    borderRadius: 10,
     backgroundColor: "#4F46E5",
     flexDirection: "row",
     alignItems: "center",
@@ -1221,9 +1438,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 5,
   },
   qtyButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
     backgroundColor: "rgba(255,255,255,0.17)",
     alignItems: "center",
     justifyContent: "center",
@@ -1234,9 +1451,9 @@ const s = StyleSheet.create({
     fontWeight: "900",
   },
   out: {
-    height: 36,
-    marginTop: 9,
-    borderRadius: 11,
+    height: 30,
+    marginTop: 7,
+    borderRadius: 10,
     backgroundColor: "#FEF2F2",
     borderWidth: 1,
     borderColor: "#FECACA",
@@ -1248,7 +1465,134 @@ const s = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
   },
-  loading: { flex: 1, backgroundColor: "#F7F7FC", alignItems: "center", justifyContent: "center", gap: 12 },
+  skeletonHeader: {
+    paddingHorizontal: 18,
+    paddingTop: 7,
+    paddingBottom: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  skeletonBack: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#ECECF3" },
+  skeletonCart: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#ECECF3" },
+  skeletonHeaderTitle: { width: 142, height: 17, borderRadius: 8, backgroundColor: "#E9E9F0" },
+  skeletonSubtitle: { width: 190, height: 10, borderRadius: 6, backgroundColor: "#EEEEF3", marginTop: 9, marginLeft: 53 },
+  skeletonHero: {
+    marginTop: 18, minHeight: 184, borderRadius: 20, padding: 18,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: "#F0EFF6",
+  },
+  skeletonHeroText: { flex: 1, gap: 10 },
+  skeletonPill: { width: 118, height: 19, borderRadius: 10, backgroundColor: "#E1DFEA" },
+  skeletonHeroLine: { width: "78%", height: 19, borderRadius: 7, backgroundColor: "#DFDDE8" },
+  skeletonHeroCaption: { width: "88%", height: 8, borderRadius: 5, backgroundColor: "#E3E1EA" },
+  skeletonHeroArtwork: { width: 76, height: 76, borderRadius: 24, backgroundColor: "#E1DFEA", marginLeft: 8 },
+  skeletonSection: {
+    paddingHorizontal: 17, paddingTop: 22, paddingBottom: 13,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+  },
+  skeletonSectionTitle: { width: 120, height: 19, borderRadius: 7, backgroundColor: "#E6E6ED" },
+  skeletonSectionSub: { width: 165, height: 9, borderRadius: 5, backgroundColor: "#EEEEF2", marginTop: 7 },
+  skeletonSort: { width: 66, height: 35, borderRadius: 11, backgroundColor: "#ECEBF4" },
+  skeletonChips: { flexDirection: "row", paddingHorizontal: 17, paddingBottom: 15, gap: 8 },
+  skeletonChip: { height: 34, borderRadius: 18, backgroundColor: "#EAEAF0" },
+  skeletonGrid: {
+    paddingHorizontal: 15,
+    gap: 16,
+  },
+  skeletonRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  skeletonCard: {
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#EEEEF3",
+  },
+  skeletonImageWrap: {
+    width: "100%",
+    aspectRatio: 1.32,
+    backgroundColor: "#ECECF2",
+    overflow: "hidden",
+  },
+  skeletonSquareImage: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#ECECF2",
+  },
+  skeletonDiscount: {
+    position: "absolute",
+    left: 8,
+    top: 8,
+    width: 43,
+    height: 17,
+    borderRadius: 6,
+    backgroundColor: "#DEDEE8",
+  },
+  skeletonHeart: {
+    position: "absolute",
+    right: 8,
+    top: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#DEDEE8",
+  },
+  skeletonTrending: {
+    position: "absolute",
+    left: 8,
+    bottom: 8,
+    width: 58,
+    height: 16,
+    borderRadius: 6,
+    backgroundColor: "#DEDEE8",
+  },
+  skeletonCardInfo: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 7,
+  },
+  skeletonMetaRow: {
+    minHeight: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  skeletonCategory: {
+    width: "38%",
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#EAEAF0",
+  },
+  skeletonRating: {
+    width: 30,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#EAEAF0",
+  },
+  skeletonProductName: {
+    width: "92%",
+    height: 11,
+    borderRadius: 5,
+    backgroundColor: "#EAEAF0",
+  },
+  skeletonPrice: {
+    width: "43%",
+    height: 16,
+    borderRadius: 5,
+    backgroundColor: "#E4E4EC",
+    marginTop: 1,
+  },
+  skeletonAddButton: {
+    width: "100%",
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#E8E7F2",
+    marginTop: 1,
+  },
+  loading: { flex: 1, backgroundColor: "#F7F8FC", alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { color: "#777D8F", fontSize: 12, fontWeight: "600" },
   error: {
     margin: 18,

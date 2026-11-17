@@ -1,19 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import { LinearGradient } from "expo-linear-gradient"; // npx expo install expo-linear-gradient
 import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 import { router, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   Alert,
   Animated,
   BackHandler,
   Easing,
   FlatList,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -36,6 +38,19 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import Share from "react-native-share";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
+import Reanimated, {
+  FadeInDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
 // Animate the compact-header layout changes on Android as well as iOS.
 if (
@@ -54,6 +69,35 @@ try {
   useSpeechEvent = speech.useSpeechRecognitionEvent;
 } catch {}
 const voiceAvailable = !!SpeechModule;
+
+
+/**
+ * Shared image component for Odikart.
+ * Expo Image caches remote images in memory and on disk, so revisiting
+ * screens does not need to download the same product/category/banner again.
+ */
+const CachedImage = React.memo(function CachedImage({
+  resizeMode = "cover",
+  ...props
+}: any) {
+  const contentFit =
+    resizeMode === "contain"
+      ? "contain"
+      : resizeMode === "stretch"
+        ? "fill"
+        : resizeMode === "center"
+          ? "none"
+          : "cover";
+
+  return (
+    <ExpoImage
+      {...props}
+      contentFit={contentFit}
+      cachePolicy="memory-disk"
+      transition={180}
+    />
+  );
+});
 
 import { getMyAddresses, type Address } from "../../api/address";
 import api from "../../api/api";
@@ -98,14 +142,14 @@ const C = {
   brand: "#4F46E5",
   brandDark: "#3730A3",
   brandSoft: "#EEF2FF",
-  accent: "#8B5CF6",
-  star: "#FBBF24",
-  bg: "#FFFFFF",
+  accent: "#7C3AED",
+  star: "#F59E0B",
+  bg: "#F7F8FC",
   surface: "#FFFFFF",
-  ink: "#171717",
-  inkSoft: "#666666",
-  inkMuted: "#999999",
-  line: "#EEEEEE",
+  ink: "#171A2B",
+  inkSoft: "#667085",
+  inkMuted: "#98A2B3",
+  line: "#EAECF2",
   success: "#15803D",
   danger: "#DC2626",
   dangerSoft: "#FEE9E9",
@@ -312,27 +356,44 @@ function CategoryHomeTile({
 }) {
   const imageUrl = getCategoryImageUrl(category.image);
   const [imageFailed, setImageFailed] = useState(false);
+  const tileScale = useSharedValue(1);
+  const tileAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: tileScale.value }],
+  }));
+  const tapGesture = Gesture.Tap()
+    .maxDuration(350)
+    .onBegin(() => {
+      tileScale.value = withSpring(0.96, {
+        damping: 16,
+        stiffness: 260,
+      });
+    })
+    .onFinalize(() => {
+      tileScale.value = withSpring(1, {
+        damping: 13,
+        stiffness: 220,
+      });
+    })
+    .onEnd((_event, success) => {
+      if (success) runOnJS(onPress)();
+    });
 
   useEffect(() => {
     setImageFailed(false);
   }, [imageUrl]);
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        compact
-          ? s.catItemCompact
-          : [s.catItem, itemWidth ? { width: itemWidth } : null],
-        pressed && { opacity: 0.88, transform: [{ scale: 0.96 }] },
-      ]}
-      android_ripple={{
-        color: "rgba(59,130,246,0.12)",
-        borderless: false,
-      }}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Shop ${category.name}`}
-    >
+    <GestureDetector gesture={tapGesture}>
+      <Reanimated.View
+        style={[
+          compact
+            ? s.catItemCompact
+            : [s.catItem, itemWidth ? { width: itemWidth } : null],
+          tileAnimatedStyle,
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={`Shop ${category.name}`}
+      >
       <View
         style={[
           compact ? s.catTileCompact : s.catTile,
@@ -340,7 +401,7 @@ function CategoryHomeTile({
         ]}
       >
         {imageUrl && !imageFailed ? (
-          <Image
+          <CachedImage
             key={imageUrl}
             source={{ uri: imageUrl }}
             style={compact ? s.catImageCompact : s.catImage}
@@ -348,11 +409,14 @@ function CategoryHomeTile({
             onError={() => setImageFailed(true)}
             accessibilityLabel={`${category.name} category`}
           />
-        ) : (
-          <Text style={compact ? s.catFallbackIconCompact : s.catFallbackIcon}>
-            {category.icon || "🛍️"}
-          </Text>
-        )}
+    ) : (
+  <CachedImage
+    source={require("../../../assets/images/all-category.webp")}
+    style={compact ? s.catFallbackIconCompact : s.catFallbackIcon}
+    resizeMode="contain"
+    accessibilityLabel="All category image"
+  />
+)}
       </View>
       <Text
         style={
@@ -370,7 +434,8 @@ function CategoryHomeTile({
       >
         {category.name}
       </Text>
-    </Pressable>
+      </Reanimated.View>
+    </GestureDetector>
   );
 }
 
@@ -860,8 +925,8 @@ function HomeSkeleton() {
                       style={[
                         s.catTile,
                         {
-                          width: 48,
-                          height: 48,
+                          width: 56,
+                          height: 56,
                           backgroundColor: "#F5F5F5",
                           borderColor: "#EEEEEE",
                         },
@@ -980,6 +1045,11 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
   const discount = productDiscount(product);
   const out = isOutOfStock(product);
   const pop = useRef(new Animated.Value(1)).current;
+  const addPop = useRef(new Animated.Value(1)).current;
+  const cardScale = useSharedValue(1);
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: cardScale.value }],
+  }));
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const cardGalleryRef = useRef<ScrollView>(null);
   const productUnit = product.weight || product.netWeight || product.unit || "";
@@ -1031,7 +1101,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
           justifyContent: "center",
         }}
       >
-        <Image
+        <CachedImage
           source={{ uri }}
           style={[
             s.cardImage,
@@ -1046,38 +1116,79 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
     [imageSize, imageHeight, out, product.title],
   );
 
+  const heartRotation = pop.interpolate({
+    inputRange: [1, 1.3],
+    outputRange: ["0deg", "-12deg"],
+  });
+
   const popHeart = useCallback(() => {
+    pop.setValue(1);
     Animated.sequence([
-      Animated.spring(pop, {
-        toValue: 1.3,
-        speed: 40,
-        bounciness: 12,
-        useNativeDriver: true,
-      }),
+      Animated.parallel([
+        Animated.spring(pop, {
+          toValue: 1.38,
+          speed: 42,
+          bounciness: 15,
+          useNativeDriver: true,
+        }),
+      ]),
       Animated.spring(pop, {
         toValue: 1,
-        speed: 20,
+        speed: 18,
+        bounciness: 10,
         useNativeDriver: true,
       }),
     ]).start();
   }, [pop]);
 
+  const animateAddToCart = useCallback(() => {
+    addPop.setValue(0.82);
+    Animated.sequence([
+      Animated.spring(addPop, {
+        toValue: 1.12,
+        speed: 38,
+        bounciness: 14,
+        useNativeDriver: true,
+      }),
+      Animated.spring(addPop, {
+        toValue: 1,
+        speed: 20,
+        bounciness: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    p.onAdd();
+  }, [addPop, p.onAdd]);
+
   return (
+    <Reanimated.View
+      entering={FadeInDown
+        .delay(Math.min(Math.max(p.index, 0), 6) * 42)
+        .duration(360)
+        .springify()
+        .damping(18)}
+      style={[{ width: p.width }, cardAnimatedStyle]}
+    >
     <Pressable
       onPress={p.onOpen}
+      onPressIn={() => {
+        cardScale.value = withSpring(0.975, {
+          damping: 16,
+          stiffness: 280,
+        });
+      }}
+      onPressOut={() => {
+        cardScale.value = withSpring(1, {
+          damping: 14,
+          stiffness: 220,
+        });
+      }}
       onLongPress={p.onLongPress}
       delayLongPress={250}
       accessibilityHint="Press and hold to preview this product"
       accessibilityRole="button"
       accessibilityLabel={`${product.title}, ${money(price)}${out ? ", out of stock" : ""}`}
-      style={({ pressed }) => [
-        s.card,
-        { width: p.width },
-        pressed && {
-          opacity: 0.94,
-          transform: [{ scale: 0.975 }],
-        },
-      ]}
+      style={[s.card, { width: "100%" }]}
     >
       <View
         style={[s.cardImageWrap, { width: imageSize, height: imageHeight }]}
@@ -1119,7 +1230,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
                   justifyContent: "center",
                 }}
               >
-                <Image
+                <CachedImage
                   source={{ uri }}
                   style={[
                     s.cardImage,
@@ -1133,7 +1244,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
             ))}
           </ScrollView>
         ) : image ? (
-          <Image
+          <CachedImage
             source={{ uri: image }}
             style={[
               s.cardImage,
@@ -1183,11 +1294,18 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
             pressed && { transform: [{ scale: 0.92 }] },
           ]}
         >
-          <Animated.View style={{ transform: [{ scale: pop }] }}>
+          <Animated.View
+            style={{
+              transform: [
+                { scale: pop },
+                { rotate: heartRotation },
+              ],
+            }}
+          >
             <Ionicons
               name={p.wished ? "heart" : "heart-outline"}
-              size={19}
-              color={p.wished ? C.danger : "#c5392c"}
+              size={20}
+              color={p.wished ? C.danger : "#7B8194"}
             />
           </Animated.View>
         </Pressable>
@@ -1266,11 +1384,12 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
             <Pressable
               onPress={(e) => {
                 e.stopPropagation?.();
-                p.onAdd();
+                animateAddToCart();
               }}
               accessibilityLabel={`Add ${product.title} to cart`}
-              style={({ pressed }) => [pressed && { opacity: 0.82 }]}
+              style={({ pressed }) => [pressed && { opacity: 0.88 }]}
             >
+              <Animated.View style={{ transform: [{ scale: addPop }] }}>
               <LinearGradient
                 colors={["#2563EB", "#4F46E5", "#7C3AED"]}
                 locations={[0, 0.52, 1]}
@@ -1281,6 +1400,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
                 <Ionicons name="add" size={19} color="#fff" />
                 <Text style={s.addBtnText}>ADD</Text>
               </LinearGradient>
+              </Animated.View>
             </Pressable>
           )}
         </View>
@@ -1294,6 +1414,7 @@ const ProductCard = React.memo(function ProductCard(p: CardProps) {
         />
       ) : null}
     </Pressable>
+    </Reanimated.View>
   );
 });
 
@@ -1606,6 +1727,9 @@ export default function HomeScreen() {
   const [previewImageIndex, setPreviewImageIndex] = useState(0);
   const previewCarouselWidth = Math.max(180, Math.min(screenWidth - 84, 420));
   const [locationOpen, setLocationOpen] = useState(false);
+  const [permissionPrompt, setPermissionPrompt] = useState<"location" | "notifications" | null>(null);
+  const [permissionPromptBusy, setPermissionPromptBusy] = useState(false);
+  const [showNotificationAfterLocationPicker, setShowNotificationAfterLocationPicker] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState("Select location");
   // Prevent the denied-permission Settings alert from reopening on every Home focus.
   const locationPermissionAlertShown = useRef(false);
@@ -1616,6 +1740,102 @@ export default function HomeScreen() {
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  // Show a branded permission explanation once, before the shopper starts browsing.
+  // The OS permission prompt is requested only after the shopper taps the action.
+  useEffect(() => {
+    let active = true;
+    const initializePermissionPrompts = async () => {
+      try {
+        const alreadySeen = await AsyncStorage.getItem("odikart:permission-intro-seen:v1");
+        if (alreadySeen === "1") return;
+
+        const [locationPermission, notificationPermission] = await Promise.all([
+          Location.getForegroundPermissionsAsync(),
+          Notifications.getPermissionsAsync(),
+        ]);
+        if (!active) return;
+
+        if (locationPermission.status !== Location.PermissionStatus.GRANTED) {
+          setPermissionPrompt("location");
+        } else if (!notificationPermission.granted) {
+          setPermissionPrompt("notifications");
+        } else {
+          await AsyncStorage.setItem("odikart:permission-intro-seen:v1", "1");
+        }
+      } catch (error) {
+        console.log("PERMISSION INTRO INITIALIZATION ERROR:", error);
+      }
+    };
+
+    void initializePermissionPrompts();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const finishPermissionIntro = async () => {
+    setPermissionPrompt(null);
+    try {
+      await AsyncStorage.setItem("odikart:permission-intro-seen:v1", "1");
+    } catch (error) {
+      console.log("PERMISSION INTRO STORAGE ERROR:", error);
+    }
+  };
+
+  const continueToNotificationPrompt = () => {
+    setPermissionPrompt("notifications");
+  };
+
+  const handleEnableLocationFromIntro = async () => {
+    if (permissionPromptBusy) return;
+    setPermissionPromptBusy(true);
+    try {
+      const result = await Location.requestForegroundPermissionsAsync();
+      if (result.status === Location.PermissionStatus.GRANTED) {
+        setPermissionPrompt("notifications");
+        void useCurrentLocation();
+      } else {
+        showToast(
+          result.canAskAgain
+            ? "Location permission wasn't enabled. You can try again."
+            : "Enable location permission in your phone settings.",
+          "info",
+        );
+      }
+    } catch (error) {
+      console.log("LOCATION INTRO PERMISSION ERROR:", error);
+      showToast("Couldn't request location permission. Try again.", "error");
+    } finally {
+      setPermissionPromptBusy(false);
+    }
+  };
+
+  const handleEnableNotificationsFromIntro = async () => {
+    if (permissionPromptBusy) return;
+    setPermissionPromptBusy(true);
+    try {
+      const current = await Notifications.getPermissionsAsync();
+      const result = current.granted
+        ? current
+        : await Notifications.requestPermissionsAsync();
+
+      if (result.granted) {
+        await finishPermissionIntro();
+      } else {
+        showToast(
+          "Notifications are still off. You can enable them later in Settings.",
+          "info",
+        );
+        await finishPermissionIntro();
+      }
+    } catch (error) {
+      console.log("NOTIFICATION INTRO PERMISSION ERROR:", error);
+      showToast("Couldn't request notification permission. Try again.", "error");
+    } finally {
+      setPermissionPromptBusy(false);
+    }
+  };
 
   // Re-check delivery location whenever Home becomes focused.
   // If the header still has no location, retry GPS instead of attempting it only once
@@ -1641,49 +1861,9 @@ export default function HomeScreen() {
             return;
           }
 
-          // If the shopper chose Android's "Only this time", that grant can expire
-          // after the app is closed. Ask again on the next app entry whenever Android
-          // still allows the permission request. Do not send these users to Settings.
-          if (
-            permission.canAskAgain ||
-            permission.status === Location.PermissionStatus.UNDETERMINED
-          ) {
-            locationPermissionAlertShown.current = false;
-            const requested =
-              await Location.requestForegroundPermissionsAsync();
-            if (cancelled) return;
-
-            if (requested.status === Location.PermissionStatus.GRANTED) {
-              requestAnimationFrame(() => {
-                if (!cancelled) void useCurrentLocation();
-              });
-            }
-            // If denied, wait until the next app entry to ask again. Android may
-            // suppress the native dialog after repeated denials; canAskAgain then
-            // becomes false and the Settings explanation below is used.
-            return;
-          }
-
-          // Only show Settings guidance when Android no longer allows a permission
-          // prompt (for example, after the user has denied it permanently).
-          if (locationPermissionAlertShown.current) return;
-          locationPermissionAlertShown.current = true;
-          Alert.alert(
-            "Turn on location",
-            "Your delivery location isn't showing. Allow OdiKart to access your location so we can detect your delivery area.",
-            [
-              { text: "Not now", style: "cancel" },
-              {
-                text: "Open Settings",
-                onPress: () => {
-                  void Linking.openSettings().catch((error) =>
-                    console.log("OPEN LOCATION SETTINGS ERROR:", error),
-                  );
-                },
-              },
-            ],
-            { cancelable: true },
-          );
+          // Permission onboarding is handled by the branded modal below.
+          // Do not trigger a competing native dialog or Alert from this focus effect.
+          return;
         } catch (error) {
           console.log("LOCATION PERMISSION / INITIAL LOCATION ERROR:", error);
         }
@@ -1730,7 +1910,7 @@ export default function HomeScreen() {
 
   // The cart bar springs in the first time an item is added.
   useEffect(() => {
-    if (cartCount > 0)
+    if (cartCount > 3)
       Animated.spring(cartIn, {
         toValue: 1,
         speed: 12,
@@ -1738,7 +1918,7 @@ export default function HomeScreen() {
         useNativeDriver: true,
       }).start();
     else cartIn.setValue(0);
-  }, [cartCount > 0]);
+  }, [cartCount > 3]);
 
   const shine = useRef(new Animated.Value(0)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -2506,6 +2686,10 @@ export default function HomeScreen() {
     setLocationSearch("");
     setLocationResults([]);
     setLocationLoading(false);
+    if (showNotificationAfterLocationPicker) {
+      setShowNotificationAfterLocationPicker(false);
+      setPermissionPrompt("notifications");
+    }
   };
 
   const chooseLocation = (label: string) => {
@@ -2705,24 +2889,64 @@ export default function HomeScreen() {
 
   const variantSkuOf = (p: Product) => activeVariants(p)[0]?.sku || "";
 
+  // Normalize variant attributes from the product API so shoppers can see
+  // the actual selectable values (for example Size: M, Colour: Black).
+  const variantAttributeEntries = (variant: Variant): [string, string][] => {
+    const entries: [string, string][] = [];
+    const add = (key: unknown, value: unknown) => {
+      if (value === undefined || value === null || value === "") return;
+      const cleanKey = String(key || "Option").trim();
+      const cleanValue =
+        typeof value === "object"
+          ? String(
+              (value as any).label ??
+                (value as any).name ??
+                (value as any).value ??
+                "",
+            ).trim()
+          : String(value).trim();
+      if (!cleanValue) return;
+      if (!entries.some(([existingKey]) => existingKey.toLowerCase() === cleanKey.toLowerCase())) {
+        entries.push([cleanKey, cleanValue]);
+      }
+    };
+
+    const raw = variant.attributes;
+    if (Array.isArray(raw)) {
+      raw.forEach((item: any, index: number) => {
+        if (item && typeof item === "object") {
+          add(item.name ?? item.key ?? item.attribute, item.value ?? item.label ?? item.option);
+        } else {
+          add(`Option ${index + 1}`, item);
+        }
+      });
+    } else if (raw && typeof raw === "object") {
+      Object.entries(raw).forEach(([key, value]) => add(key, value));
+    }
+
+    // Support common flat variant schemas used by product/admin APIs.
+    [
+      ["Size", variant.size],
+      ["Colour", variant.color ?? variant.colour],
+      ["Weight", variant.weight],
+      ["Pack", variant.packSize],
+      ["Material", variant.material],
+      ["Storage", variant.storage],
+      ["Style", variant.style],
+    ].forEach(([key, value]) => add(key, value));
+
+    return entries;
+  };
+
   const variantDisplayName = (variant: Variant, index: number) => {
-    const attrs =
-      variant.attributes && typeof variant.attributes === "object"
-        ? Object.entries(variant.attributes)
-            .map(([key, value]) => `${key}: ${String(value)}`)
-            .join(" · ")
-        : "";
     const label =
       variant.label ||
       variant.name ||
       variant.title ||
       variant.option ||
-      variant.size ||
-      variant.weight ||
-      variant.color ||
-      variant.colour ||
-      variant.packSize ||
-      attrs;
+      variantAttributeEntries(variant)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(" · ");
     return String(label || `Option ${index + 1}`);
   };
 
@@ -2837,20 +3061,31 @@ export default function HomeScreen() {
         0,
       ),
     );
-    setCartPreview(
-      nextItems
-        .map(
-          (item) =>
-            item.image ||
-            item.variant?.image ||
-            item.product?.media?.thumbnail ||
-            item.product?.media?.images?.[0] ||
-            item.selectedVariant?.images?.[0] ||
-            "",
-        )
-        .filter(Boolean)
-        .slice(0, 3),
-    );
+    // Keep the three most recently added product images at the front of the
+    // floating-cart preview. Quantity increases bring that product forward.
+    if (delta > 0) {
+      setCartPreview((currentPreview) =>
+        [image, ...currentPreview.filter((uri) => uri && uri !== image)].slice(0, 3),
+      );
+    } else if (next === 0) {
+      // If a cart line is removed completely, replace its preview image with
+      // another remaining cart product where possible.
+      setCartPreview((currentPreview) => {
+        const remaining = currentPreview.filter((uri) => uri && uri !== image);
+        const fallback = nextItems
+          .map(
+            (item) =>
+              item.image ||
+              item.variant?.image ||
+              item.product?.media?.thumbnail ||
+              item.product?.media?.images?.[0] ||
+              item.selectedVariant?.images?.[0] ||
+              "",
+          )
+          .filter((uri) => uri && !remaining.includes(uri));
+        return [...remaining, ...fallback].slice(0, 3);
+      });
+    }
 
     if (delta > 0 && current === 0)
       showToast(`${p.title} added to cart`, "success");
@@ -3175,7 +3410,7 @@ export default function HomeScreen() {
         <StatusBar style="dark" backgroundColor="#ffffff" translucent={false} />
         <View style={s.offlineContent}>
           <View style={s.offlineImageWrap}>
-            <Image
+            <CachedImage
               source={require("../../../assets/images/no-internet.webp")}
               style={s.offlineImage}
               resizeMode="contain"
@@ -3335,6 +3570,7 @@ export default function HomeScreen() {
   ======================================================= */
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <View style={s.root}>
       <SafeAreaView
         style={[s.root, { backgroundColor: C.surface }]}
@@ -3630,7 +3866,7 @@ export default function HomeScreen() {
                             },
                           ]}
                         >
-                          <Image
+                          <CachedImage
                             source={require("../../../assets/images/all-category.webp")}
                             style={s.catImage}
                             resizeMode="cover"
@@ -3777,7 +4013,7 @@ export default function HomeScreen() {
                   </View>
                 ) : (
                   <View style={s.empty}>
-                    <Image
+                    <CachedImage
                       source={require("../../../assets/images/search.webp")}
                       style={s.notFoundImage}
                       resizeMode="contain"
@@ -3844,7 +4080,7 @@ export default function HomeScreen() {
                                 onPress={() => handleBannerPress(b)}
                                 accessibilityRole="button"
                               >
-                                <Image
+                                <CachedImage
                                   source={
                                     b.imageUrl ? { uri: b.imageUrl } : b.source
                                   }
@@ -4016,7 +4252,7 @@ export default function HomeScreen() {
                                 </View>
                                 <View style={s.categoryHeroMedia}>
                                   {categoryImage ? (
-                                    <Image
+                                    <CachedImage
                                       source={{ uri: categoryImage }}
                                       style={s.categoryHeroImage}
                                       resizeMode="cover"
@@ -4111,7 +4347,7 @@ export default function HomeScreen() {
                                       accessibilityState={{ selected }}
                                     >
                                       {subCategory.image ? (
-                                        <Image
+                                        <CachedImage
                                           source={{ uri: subCategory.image }}
                                           style={[
                                             s.categorySubChipImage,
@@ -4379,7 +4615,7 @@ export default function HomeScreen() {
                         </>
                       ) : (
                         <View style={s.empty}>
-                          <Image
+                          <CachedImage
                             source={require("../../../assets/images/not-found.webp")}
                             style={s.notFoundImage}
                             resizeMode="contain"
@@ -4399,7 +4635,7 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* Floating cart */}
-        {isAuthenticated && cartCount > 0 ? (
+        {isAuthenticated && cartCount > 3 ? (
           <Animated.View
             style={[
               s.cartWrap,
@@ -4478,7 +4714,7 @@ export default function HomeScreen() {
                       key={`${img}-${i}`}
                       style={[s.cartImageWrap, i > 0 && { marginLeft: -12 }]}
                     >
-                      <Image
+                      <CachedImage
                         source={{ uri: img }}
                         style={{ width: "100%", height: "100%" }}
                         resizeMode="cover"
@@ -4551,6 +4787,19 @@ export default function HomeScreen() {
               accessibilityLabel="Close variant selector"
             />
             {variantPickerProduct ? (
+              <>
+              <View style={{ alignItems: "center", marginBottom: 14, zIndex: 1000, elevation: 1000 }}>
+                <Pressable
+                  onPress={() => setVariantPickerProduct(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close modal"
+                  hitSlop={10}
+                >
+                  <View style={s.floatingModalClose}>
+                    <Ionicons name="close" size={25} color="#FFFFFF" />
+                  </View>
+                </Pressable>
+              </View>
               <View style={s.variantPickerSheet}>
                 <View style={s.sheetHandle} />
                 <View style={s.variantPickerHeader}>
@@ -4562,19 +4811,12 @@ export default function HomeScreen() {
                       {variantPickerProduct.title}
                     </Text>
                   </View>
-                  <Pressable
-                    style={s.variantPickerClose}
-                    onPress={() => setVariantPickerProduct(null)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                  >
-                    <Ionicons name="close" size={21} color={C.ink} />
-                  </Pressable>
+
                 </View>
 
                 <View style={s.variantPickerProductRow}>
                   {productImage(variantPickerProduct) ? (
-                    <Image
+                    <CachedImage
                       source={{ uri: productImage(variantPickerProduct) }}
                       style={s.variantPickerImage}
                       resizeMode="contain"
@@ -4616,7 +4858,7 @@ export default function HomeScreen() {
                 </View>
 
                 <Text style={s.variantPickerSectionTitle}>
-                  AVAILABLE OPTIONS
+                  SELECT YOUR PREFERRED OPTION
                 </Text>
                 <ScrollView
                   style={s.variantPickerOptions}
@@ -4654,14 +4896,38 @@ export default function HomeScreen() {
                             ) : null}
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text
-                              style={[
-                                s.variantOptionName,
-                                selected && { color: C.brand },
-                              ]}
-                            >
-                              {variantDisplayName(variant, index)}
-                            </Text>
+                            {variantAttributeEntries(variant).length > 0 ? (
+                              <View style={s.variantAttributeList}>
+                                {variantAttributeEntries(variant).map(([key, value]) => (
+                                  <View
+                                    key={`${sku}-${key}`}
+                                    style={[
+                                      s.variantAttributeChip,
+                                      selected && s.variantAttributeChipSelected,
+                                    ]}
+                                  >
+                                    <Text style={s.variantAttributeKey}>{key}</Text>
+                                    <Text
+                                      style={[
+                                        s.variantAttributeValue,
+                                        selected && s.variantAttributeValueSelected,
+                                      ]}
+                                    >
+                                      {value}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : (
+                              <Text
+                                style={[
+                                  s.variantOptionName,
+                                  selected && { color: C.brand },
+                                ]}
+                              >
+                                {variantDisplayName(variant, index)}
+                              </Text>
+                            )}
                             <Text style={s.variantOptionSku}>
                               {sku ? `SKU: ${sku}` : "Standard option"}
                               {stockKnown
@@ -4716,6 +4982,7 @@ export default function HomeScreen() {
                   </LinearGradient>
                 </Pressable>
               </View>
+              </>
             ) : null}
           </View>
         </Modal>
@@ -4739,18 +5006,21 @@ export default function HomeScreen() {
               behavior="padding"
               keyboardVerticalOffset={Platform.OS === "android" ? 20 : 0}
             >
-              <View style={[s.sheet, keyboardVisible && { maxHeight: "85%" }]}>
+
+              <View style={{ alignItems: "center", marginBottom: 14, zIndex: 1000, elevation: 1000 }}>
+                <Pressable
+                  onPress={closeLocation}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close modal"
+                  hitSlop={10}
+                >
+                  <View style={s.floatingModalClose}>
+                    <Ionicons name="close" size={25} color="#FFFFFF" />
+                  </View>
+                </Pressable>
+              </View>
+              <View style={[s.sheet, { maxHeight: "82%" }, keyboardVisible && { maxHeight: "82%" }]}>
                 <View style={s.sheetHandle} />
-                <View style={s.modalTopCloseRow}>
-                  <Pressable
-                    style={s.modalTopClose}
-                    onPress={closeLocation}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close location"
-                  >
-                    <Ionicons name="close" size={21} color={C.ink} />
-                  </Pressable>
-                </View>
                 <View style={s.sheetHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.sheetTitle}>Choose delivery location</Text>
@@ -4924,7 +5194,7 @@ export default function HomeScreen() {
                   </View>
                 ) : savedAddresses.length === 0 ? (
                   <View style={[s.status, { paddingVertical: 14 }]}>
-                    <Image
+                    <CachedImage
                       source={require("../../../assets/images/location-permission.webp")}
                       style={{ width: 150, height: 125 }}
                       resizeMode="contain"
@@ -5045,18 +5315,21 @@ export default function HomeScreen() {
               onPress={closeVoice}
               accessibilityLabel="Close voice search"
             />
-            <View style={s.voiceSheet}>
-              <View style={s.sheetHandle} />
-              <View style={s.modalTopCloseRow}>
+
+              <View style={{ alignItems: "center", marginBottom: 14, zIndex: 1000, elevation: 1000 }}>
                 <Pressable
-                  style={s.modalTopClose}
                   onPress={closeVoice}
                   accessibilityRole="button"
-                  accessibilityLabel="Close voice search"
+                  accessibilityLabel="Close modal"
+                  hitSlop={10}
                 >
-                  <Ionicons name="close" size={21} color={C.ink} />
+                  <View style={s.floatingModalClose}>
+                    <Ionicons name="close" size={25} color="#FFFFFF" />
+                  </View>
                 </Pressable>
               </View>
+            <View style={s.voiceSheet}>
+              <View style={s.sheetHandle} />
               <Text style={s.voiceTitle}>
                 {voiceError
                   ? "Didn't catch that"
@@ -5231,7 +5504,7 @@ export default function HomeScreen() {
                                   { width: previewCarouselWidth },
                                 ]}
                               >
-                                <Image
+                                <CachedImage
                                   source={{ uri }}
                                   style={[
                                     s.productPreviewImage,
@@ -5379,6 +5652,116 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
+        {/* First-launch location and notification permission introduction. */}
+        <Modal
+          visible={permissionPrompt !== null}
+          transparent
+          animationType="slide"
+          statusBarTranslucent
+          onRequestClose={() => {
+            if (permissionPrompt === "location") {
+              continueToNotificationPrompt();
+            } else {
+              void finishPermissionIntro();
+            }
+          }}
+        >
+          <View style={s.permissionIntroOverlay}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => {
+                if (permissionPrompt === "location") {
+                  continueToNotificationPrompt();
+                } else {
+                  void finishPermissionIntro();
+                }
+              }}
+              accessibilityLabel="Dismiss permission introduction"
+            />
+
+              <View style={{ alignItems: "center", marginBottom: 14, zIndex: 1000, elevation: 1000 }}>
+                <Pressable
+                  onPress={() => { if (permissionPrompt === "location") { continueToNotificationPrompt(); } else { void finishPermissionIntro(); } }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close permission modal"
+                  hitSlop={10}
+                >
+                  <View style={s.floatingModalClose}>
+                    <Ionicons name="close" size={25} color="#FFFFFF" />
+                  </View>
+                </Pressable>
+              </View>
+            <View style={s.permissionIntroCard}>
+              <View style={s.permissionIntroIconWrap}>
+                <Ionicons
+                  name={permissionPrompt === "location" ? "location-outline" : "notifications-outline"}
+                  size={76}
+                  color={permissionPrompt === "location" ? "#252525" : C.brand}
+                />
+                {permissionPrompt === "location" ? (
+                  <View style={s.permissionIntroSlash} />
+                ) : null}
+              </View>
+
+              <Text style={s.permissionIntroTitle}>
+                {permissionPrompt === "location"
+                  ? "Location permission not enabled"
+                  : "Stay updated with Odikart"}
+              </Text>
+              <Text style={s.permissionIntroDescription}>
+                {permissionPrompt === "location"
+                  ? "Please enable location permission for a better delivery experience"
+                  : "Enable notifications to receive order updates, delivery alerts and special offers"}
+              </Text>
+
+              <View style={s.permissionIntroDivider} />
+
+              <Pressable
+                style={s.permissionIntroPrimary}
+                disabled={permissionPromptBusy}
+                onPress={
+                  permissionPrompt === "location"
+                    ? handleEnableLocationFromIntro
+                    : handleEnableNotificationsFromIntro
+                }
+              >
+                {permissionPromptBusy ? (
+                  <ActivityIndicator color={C.success} />
+                ) : (
+                  <Text style={s.permissionIntroPrimaryText}>
+                    {permissionPrompt === "location"
+                      ? "Enable device location"
+                      : "Enable notifications"}
+                  </Text>
+                )}
+              </Pressable>
+
+              <View style={s.permissionIntroDivider} />
+
+              <Pressable
+                style={s.permissionIntroSecondary}
+                disabled={permissionPromptBusy}
+                onPress={() => {
+                  if (permissionPrompt === "location") {
+                    setPermissionPrompt(null);
+                    setShowNotificationAfterLocationPicker(true);
+                    setLocationOpen(true);
+                    void loadSavedAddresses();
+                  } else {
+                    void finishPermissionIntro();
+                  }
+                }}
+              >
+                <Text style={s.permissionIntroSecondaryText}>
+                  {permissionPrompt === "location"
+                    ? "Select location manually"
+                    : "Maybe later"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+
         <Modal
           visible={filterOpen}
           transparent
@@ -5391,6 +5774,19 @@ export default function HomeScreen() {
               style={s.filterBackdrop}
               onPress={() => setFilterOpen(false)}
             />
+
+              <View style={{ alignItems: "center", marginBottom: 14, zIndex: 1000, elevation: 1000 }}>
+                <Pressable
+                  onPress={() => setFilterOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close modal"
+                  hitSlop={10}
+                >
+                  <View style={s.floatingModalClose}>
+                    <Ionicons name="close" size={25} color="#FFFFFF" />
+                  </View>
+                </Pressable>
+              </View>
             <View style={s.filterSheet}>
               <View style={s.filterHandle} />
               <View
@@ -5399,14 +5795,7 @@ export default function HomeScreen() {
                   { paddingHorizontal: 18, marginTop: 2 },
                 ]}
               >
-                <Pressable
-                  style={s.modalTopClose}
-                  onPress={() => setFilterOpen(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close filters"
-                >
-                  <Ionicons name="close" size={21} color={C.ink} />
-                </Pressable>
+                
               </View>
               <View style={s.filterHeader}>
                 <View style={s.filterHeaderIcon}>
@@ -5420,7 +5809,7 @@ export default function HomeScreen() {
                       gap: 8,
                     }}
                   >
-                    <Text style={s.filterTitle}>Filters</Text>
+                    <Text style={s.filterTitle}>Find your favourites</Text>
                     {activeFilterCount > 0 ? (
                       <View style={s.filterHeaderBadge}>
                         <Text style={s.filterHeaderBadgeText}>
@@ -5429,7 +5818,7 @@ export default function HomeScreen() {
                       </View>
                     ) : null}
                   </View>
-                  <Text style={s.filterSubtitle}>Refine your products</Text>
+                  <Text style={s.filterSubtitle}>Fine-tune your shopping results</Text>
                 </View>
               </View>
               <View style={s.filterDashboard}>
@@ -5575,7 +5964,7 @@ export default function HomeScreen() {
                                 ]}
                               >
                                 {imageUrl ? (
-                                  <Image
+                                  <CachedImage
                                     source={{ uri: imageUrl }}
                                     style={s.categoryPickerImage}
                                     resizeMode="cover"
@@ -5628,9 +6017,9 @@ export default function HomeScreen() {
                           />
                         </View>
                         <View>
-                          <Text style={s.filterContentTitle}>Subcategory</Text>
+                          <Text style={s.filterContentTitle}>Explore subcategories</Text>
                           <Text style={s.filterContentDescription}>
-                            Choose a more specific product group
+                            Pick a collection to narrow down your results
                           </Text>
                         </View>
                       </View>
@@ -5665,7 +6054,7 @@ export default function HomeScreen() {
                                 accessibilityState={{ selected }}
                               >
                                 {item.image ? (
-                                  <Image
+                                  <CachedImage
                                     source={{ uri: item.image }}
                                     style={s.filterCategoryImage}
                                     resizeMode="cover"
@@ -5724,7 +6113,7 @@ export default function HomeScreen() {
                           />
                         </View>
                         <View>
-                          <Text style={s.filterContentTitle}>Brand</Text>
+                          <Text style={s.filterContentTitle}>Choose a brand</Text>
                           <Text style={s.filterContentDescription}>
                             Choose your preferred brand
                           </Text>
@@ -5748,7 +6137,7 @@ export default function HomeScreen() {
                               accessibilityState={{ selected }}
                             >
                               {item.image ? (
-                                <Image
+                                <CachedImage
                                   source={{ uri: item.image }}
                                   style={s.filterCategoryImage}
                                   resizeMode="contain"
@@ -6048,6 +6437,7 @@ export default function HomeScreen() {
         <Toast toast={toast} />
       </SafeAreaView>
     </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -6079,8 +6469,9 @@ const s = StyleSheet.create({
   },
   headerHero: {
     paddingTop: 8,
-    paddingBottom: 12,
+    paddingBottom: 10,
     overflow: "hidden",
+    backgroundColor: "#FFFFFF",
   },
   quickActionRow: {
     flexDirection: "row",
@@ -6119,10 +6510,10 @@ const s = StyleSheet.create({
     textAlign: "center",
   },
   headerTop: {
-    backgroundColor: "transparent",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: GUTTER,
-    paddingTop: 4,
-    paddingBottom: 4,
+    paddingTop: 6,
+    paddingBottom: 7,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -6148,12 +6539,12 @@ const s = StyleSheet.create({
     minHeight: 44,
   },
   locationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F5F5F5",
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    backgroundColor: "#EEF2FF",
     borderWidth: 1,
-    borderColor: "#EEEEEE",
+    borderColor: "#E3E7FF",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
@@ -6172,14 +6563,14 @@ const s = StyleSheet.create({
     letterSpacing: -0.1,
   },
   bellBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F7F8FC",
     borderWidth: 1,
-    borderColor: "#EEEEEE",
+    borderColor: "#ECEEF5",
   },
   bellBadge: {
     position: "absolute",
@@ -6199,38 +6590,38 @@ const s = StyleSheet.create({
 
   searchWrap: {
     width: "100%",
-    backgroundColor: "transparent",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: GUTTER,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 7,
+    paddingBottom: 9,
     zIndex: 20,
   },
   searchGradientShell: {
-    borderRadius: 25,
-    padding: 1.5,
+    borderRadius: 22,
+    padding: 1,
     overflow: "hidden",
-    shadowColor: "#6366F1",
-    shadowOpacity: 0.18,
-    shadowRadius: 13,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 4,
+    shadowColor: "#27346B",
+    shadowOpacity: 0.06,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   searchBox: {
     width: "100%",
     minWidth: 0,
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    minHeight: 54,
+    borderRadius: 21,
+    backgroundColor: "#F5F6FA",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 15,
     gap: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#ECEEF5",
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
+    shadowOpacity: 0.025,
+    shadowRadius: 2,
     elevation: 1,
   },
   searchLogo: { width: 27, height: 27 },
@@ -6366,7 +6757,9 @@ const s = StyleSheet.create({
 
   visualCategorySection: {
     marginTop: 0,
-    paddingTop: 10,
+    paddingTop: 3,
+    paddingBottom: 5,
+    backgroundColor: "#FFFFFF",
   },
   visualCategoryHeading: {
     paddingHorizontal: GUTTER,
@@ -6384,10 +6777,10 @@ const s = StyleSheet.create({
     marginTop: 3,
   },
   visualCategoryList: {
-    paddingLeft: 0,
-    paddingRight: GUTTER,
-    paddingBottom: 6,
-    columnGap: 6,
+    paddingLeft: 8,
+    paddingRight: 12,
+    paddingBottom: 5,
+    columnGap: 7,
   },
 
   /* Selected category landing page */
@@ -6733,17 +7126,15 @@ const s = StyleSheet.create({
     zIndex: 50,
   },
   bannerBackdrop: {
-    paddingTop: 10,
-    paddingBottom: 22,
-    backgroundColor: "transparent",
+    paddingTop: 13,
+    paddingBottom: 12,
+    backgroundColor: "#FFFFFF",
   },
   categoryRailOuter: {
-    // backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFFFF",
     zIndex: 30,
-    borderColor: "rgb(233, 226, 246)",
-    shadowColor: "rgb(136, 106, 194)",
-    shadowOffset: { width: 0, height: 1 },
-    borderBottomWidth: 0.3,
+    borderColor: "#EEF0F5",
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   dots: {
     marginTop: 10,
@@ -6777,8 +7168,8 @@ const s = StyleSheet.create({
   },
 
   catItem: {
-    width: 56,
-    minHeight: 82,
+    width: 62,
+    minHeight: 88,
     alignItems: "center",
     justifyContent: "flex-start",
     borderRadius: 18,
@@ -6803,20 +7194,20 @@ const s = StyleSheet.create({
   },
 
   catTile: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
+    width: 56,
+    height: 56,
+    borderRadius: 18,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: C.brandSoft,
+    backgroundColor: "#F3F4FA",
     borderWidth: 1,
-    borderColor: "#FFFFFF",
-    elevation: 2,
-    shadowColor: C.brandDark,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+    borderColor: "#EEF0F7",
+    elevation: 1,
+    shadowColor: "#27346B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.045,
+    shadowRadius: 4,
   },
 
   catTileCompact: {
@@ -6848,10 +7239,10 @@ const s = StyleSheet.create({
 
   catName: {
     width: "100%",
-    marginTop: 5,
-    color: "#302B48",
-    fontSize: 9,
-    lineHeight: 12,
+    marginTop: 6,
+    color: "#34384B",
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "700",
     textAlign: "center",
     paddingHorizontal: 2,
@@ -6870,14 +7261,18 @@ const s = StyleSheet.create({
   /* banner */
   banner: {
     height: 190,
-    borderRadius: 20,
+    borderRadius: 23,
     overflow: "hidden",
-    backgroundColor: "transparent",
+    backgroundColor: "#F1F3FA",
+    borderWidth: 1,
+    borderColor: "#EEF0F6",
   },
   cardImageWrap: {
-    borderRadius: 14,
+    borderRadius: 17,
     overflow: "hidden",
-    backgroundColor: "#FAFAFD",
+    backgroundColor: "#F6F7FB",
+    borderWidth: 1,
+    borderColor: "#F0F1F6",
   },
   cardImageCarousel: { width: "100%", height: "100%" },
   cardImage: { width: "100%", height: "100%" },
@@ -6956,30 +7351,33 @@ const s = StyleSheet.create({
   },
   discountBadge: {
     position: "absolute",
-    left: 5,
-    top: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 7,
-    backgroundColor: "#5B4BFF",
+    left: 7,
+    top: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: C.brand,
   },
   discountBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
   wishBtn: {
     position: "absolute",
-    right: 5,
-    top: 5,
-    width: 27,
-    height: 27,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.96)",
+    right: 7,
+    top: 7,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderWidth: 1,
+    borderColor: "#EEF0F5",
     alignItems: "center",
     justifyContent: "center",
+    elevation: 1,
   },
-  cardBody: { paddingTop: 6, paddingHorizontal: 2 },
+  cardBody: { paddingTop: 8, paddingHorizontal: 3 },
   cardTitle: {
-    fontSize: 13.5,
+    fontSize: 13,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "750",
     color: C.ink,
   },
   cardUnit: { marginTop: 2, fontSize: 11, lineHeight: 14, color: C.inkMuted },
@@ -7008,11 +7406,11 @@ const s = StyleSheet.create({
   reviewCount: { fontSize: 10, color: C.inkMuted },
   newTag: { fontSize: 10.5, fontWeight: "700", color: C.brand },
   price: {
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: "900",
-    color: C.ink,
-    letterSpacing: -0.2,
+    color: "#15182A",
+    letterSpacing: -0.35,
   },
   originalPrice: {
     fontSize: 10,
@@ -7020,16 +7418,20 @@ const s = StyleSheet.create({
     textDecorationLine: "line-through",
   },
   addBtn: {
-    minWidth: 62,
-    height: 32,
-    paddingHorizontal: 8,
-    borderRadius: 10,
+    minWidth: 68,
+    height: 35,
+    paddingHorizontal: 10,
+    borderRadius: 11,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 1,
+    gap: 2,
     elevation: 2,
+    shadowColor: C.brand,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
   },
   addBtnText: {
     color: "#FFFFFF",
@@ -7038,8 +7440,8 @@ const s = StyleSheet.create({
     letterSpacing: 0.25,
   },
   stepper: {
-    height: 33,
-    borderRadius: 9,
+    height: 35,
+    borderRadius: 11,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
@@ -7079,23 +7481,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  voiceSheet: {
-    backgroundColor: C.surface,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: 22,
-    paddingTop: 12,
-    paddingBottom: 32,
-    alignItems: "center",
-    width: "100%",
-    borderWidth: 1,
-    borderColor: C.line,
-    shadowColor: "#0F2F5F",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 18,
-  },
+  voiceSheet: { maxHeight: "82%", backgroundColor: "#F3F4FA", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 32 : 24, alignItems: "center", width: "100%", borderWidth: 0, borderColor: "transparent", shadowColor: "#101828", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.14, shadowRadius: 22, elevation: 22 },
   voiceTitle: {
     fontSize: 20,
     fontWeight: "800",
@@ -7201,50 +7587,26 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   activeFilterChipText: { color: C.brand, fontSize: 11, fontWeight: "800" },
-  filterOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15,23,42,0.48)",
-  },
+  filterOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(18, 20, 32, 0.58)" },
   filterBackdrop: { ...StyleSheet.absoluteFillObject },
-  filterSheet: {
-    height: "91%",
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: C.line,
-    shadowColor: "#0F2F5F",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    elevation: 20,
-  },
-  filterHandle: {
-    alignSelf: "center",
-    marginTop: 9,
-    marginBottom: 3,
-    width: 42,
-    height: 5,
-    borderRadius: 4,
-    backgroundColor: "#D8DAE8",
-  },
+  filterSheet: { height: "82%", backgroundColor: "#F3F4FA", borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: "hidden", borderWidth: 0, borderColor: "transparent", shadowColor: "#101828", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.14, shadowRadius: 22, elevation: 22 },
+  filterHandle: { alignSelf: "center", marginTop: 10, marginBottom: 5, width: 38, height: 4, borderRadius: 3, backgroundColor: "#C9CBD5" },
   filterHeader: {
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 18,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    borderBottomColor: "#EEF0F6",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     gap: 13,
   },
   filterHeaderIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    backgroundColor: C.brandSoft,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "#EEF0FF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -7291,7 +7653,7 @@ const s = StyleSheet.create({
   filterDashboard: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: C.bg,
+    backgroundColor: "#F7F8FC",
     minHeight: 0,
   },
   filterSidebar: {
@@ -7300,7 +7662,7 @@ const s = StyleSheet.create({
     flexShrink: 0,
     backgroundColor: "#FFFFFF",
     borderRightWidth: 1,
-    borderRightColor: "#E8E9F2",
+    borderRightColor: "#ECEEF5",
   },
   filterSidebarContent: {
     paddingHorizontal: 7,
@@ -7316,17 +7678,21 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   filterNavItem: {
-    minHeight: 58,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 9,
-    borderRadius: 12,
-    marginBottom: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 10,
+    borderRadius: 15,
+    marginBottom: 7,
     backgroundColor: "transparent",
     position: "relative",
   },
-  filterNavItemActive: { backgroundColor: "#E0E7FF" },
+  filterNavItemActive: {
+    backgroundColor: "#EEF0FF",
+    borderWidth: 1,
+    borderColor: "#DDE2FF",
+  },
   filterNavIndicator: {
     position: "absolute",
     left: 0,
@@ -7337,13 +7703,13 @@ const s = StyleSheet.create({
     borderBottomRightRadius: 4,
     backgroundColor: C.brand,
   },
-  filterNavTitle: { color: C.inkSoft, fontSize: 10, fontWeight: "900" },
+  filterNavTitle: { color: C.inkSoft, fontSize: 11, fontWeight: "800" },
   filterNavTitleActive: { color: C.brand },
   filterNavSubtitle: {
-    color: C.inkSoft,
-    fontSize: 7,
+    color: C.inkMuted,
+    fontSize: 8,
     fontWeight: "600",
-    marginTop: 3,
+    marginTop: 4,
   },
   filterNavSubtitleActive: { color: C.brand, opacity: 0.72 },
   filterNavCount: {
@@ -7357,7 +7723,7 @@ const s = StyleSheet.create({
     marginLeft: 3,
   },
   filterNavCountText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
-  filterContentPane: { flex: 1, minWidth: 0, backgroundColor: "#F8F9FC" },
+  filterContentPane: { flex: 1, minWidth: 0, backgroundColor: "#F7F8FC" },
   filterContentTitle: { color: C.ink, fontSize: 16, fontWeight: "900" },
   filterContentDescription: {
     color: C.inkSoft,
@@ -7372,7 +7738,7 @@ const s = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 9,
   },
-  filterBody: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 22 },
+  filterBody: { paddingHorizontal: 13, paddingTop: 13, paddingBottom: 24 },
   categoryPickerGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -7382,14 +7748,19 @@ const s = StyleSheet.create({
   },
   categoryPickerCard: {
     width: "48%",
-    minHeight: 150,
-    padding: 10,
-    borderRadius: 18,
+    minHeight: 154,
+    padding: 11,
+    borderRadius: 20,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#E8EAF2",
+    borderColor: "#EAECF4",
     alignItems: "center",
     justifyContent: "flex-start",
+    shadowColor: "#26316B",
+    shadowOpacity: 0.035,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
   categoryPickerCardActive: {
     borderColor: C.brand,
@@ -7401,15 +7772,15 @@ const s = StyleSheet.create({
     elevation: 2,
   },
   categoryPickerImageWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: 17,
+    width: 82,
+    height: 82,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    marginBottom: 9,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.9)",
+    borderColor: "#F0F1F8",
   },
   categoryPickerImageWrapActive: {
     borderColor: "#C7D2FE",
@@ -7470,53 +7841,74 @@ const s = StyleSheet.create({
     borderColor: "#A9B5FF",
     backgroundColor: "#F0F2FF",
   },
-  filterStackList: { gap: 10 },
-  filterImageRow: {
-    minHeight: 66,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: C.line,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  filterStackList: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    columnGap: 8,
+    rowGap: 10,
+  },
+  filterImageRow: {
+    width: "48%",
+    minHeight: 132,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#EAECF4",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 9,
+    paddingVertical: 12,
+    flexDirection: "column",
     alignItems: "center",
-    gap: 12,
+    justifyContent: "center",
+    gap: 9,
+    shadowColor: "#26316B",
+    shadowOpacity: 0.035,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
   filterImageRowActive: {
-    borderColor: C.brand,
-    backgroundColor: "#E0E7FF",
+    borderColor: "#9AA7FF",
+    backgroundColor: "#F0F1FF",
+    shadowColor: C.brand,
+    shadowOpacity: 0.09,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   filterCategoryImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: "#F4F6FA",
+    width: 66,
+    height: 66,
+    borderRadius: 16,
+    backgroundColor: "#F4F5FA",
   },
   filterCategoryImageFallback: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
+    width: 66,
+    height: 66,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   filterCategoryRowText: {
     color: "#39445D",
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: "800",
-    flex: 1,
+    textAlign: "center",
+    minHeight: 30,
+    width: "100%",
   },
   filterCategoryRowTextActive: { color: C.brand },
   filterSectionCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 14,
-    marginTop: 12,
+    borderRadius: 22,
+    padding: 15,
+    marginTop: 2,
     borderWidth: 1,
-    borderColor: "#ECEEF6",
+    borderColor: "#ECEEF5",
     shadowColor: "#24205F",
     shadowOpacity: 0.045,
-    shadowRadius: 12,
+    shadowRadius: 13,
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
   },
@@ -7527,10 +7919,10 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   filterSectionIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: "#E0E7FF",
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "#EEF0FF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -7609,19 +8001,19 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
   },
   filterFooter: {
-    paddingHorizontal: 15,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === "ios" ? 25 : 14,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: Platform.OS === "ios" ? 28 : 18,
     borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
+    borderTopColor: "#ECEEF5",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
-    gap: 10,
+    gap: 11,
   },
   filterResetButton: {
-    minHeight: 50,
-    width: "34%",
-    borderRadius: 15,
+    minHeight: 52,
+    width: "32%",
+    borderRadius: 16,
     overflow: "hidden",
     alignItems: "stretch",
     justifyContent: "center",
@@ -7638,8 +8030,8 @@ const s = StyleSheet.create({
   filterFooterButtonText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
   filterApplyButton: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 15,
+    minHeight: 52,
+    borderRadius: 16,
     overflow: "hidden",
     shadowColor: C.brand,
     shadowOpacity: 0.22,
@@ -7649,9 +8041,9 @@ const s = StyleSheet.create({
   },
   filterApplyGradient: {
     flex: 1,
-    minHeight: 50,
+    minHeight: 52,
     paddingHorizontal: 12,
-    borderRadius: 15,
+    borderRadius: 16,
     flexDirection: "row",
     gap: 8,
     alignItems: "center",
@@ -7997,7 +8389,7 @@ const s = StyleSheet.create({
   // cartAura: { position: "absolute", width: "78%", maxWidth: 233, height: 58, borderRadius: 32, backgroundColor: "#6366F1", shadowColor: "#6366F1", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 22, elevation: 18 },
   cartBar: {
     width: "100%",
-    maxWidth: 210,
+    maxWidth: 230,
     minHeight: 54,
     paddingLeft: 11,
     paddingRight: 9,
@@ -8080,63 +8472,28 @@ const s = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: "700",
   },
-
-  modalTopCloseRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "flex-end",
+  floatingModalClose: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#17171D",
     alignItems: "center",
-    marginTop: -4,
-    marginBottom: 8,
-  },
-  modalTopClose: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F1F6FD",
-    borderWidth: 1,
-    borderColor: "#E2EAF5",
-    alignItems: "center",
+    borderWidth: 0.5,
+    borderColor: "rgba(255, 255, 255, 0.83)",
     justifyContent: "center",
-    shadowColor: "#17365D",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 5,
-    elevation: 2,
+    shadowColor: "rgba(218, 205, 205, 0.63)",
+    shadowOffset: { width: 9, height: 4 },
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    elevation: 12,
   },
+  modalTopCloseRow: { width: "100%", flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 0, marginBottom: 10 },
+  modalTopClose: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#FFFFFF", borderWidth: 0, borderColor: "transparent", alignItems: "center", justifyContent: "center", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 },
 
   /* location sheet */
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15,23,42,0.42)",
-  },
-  sheet: {
-    backgroundColor: C.surface,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 28,
-    borderWidth: 1,
-    borderColor: C.line,
-    minHeight: 390,
-    maxHeight: "90%",
-    width: "100%",
-    shadowColor: "#0F2F5F",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 18,
-  },
-  sheetHandle: {
-    alignSelf: "center",
-    width: 38,
-    height: 4,
-    borderRadius: 3,
-    backgroundColor: "#CBD5E1",
-    marginBottom: 12,
-  },
+  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(18, 20, 32, 0.58)" },
+  sheet: { backgroundColor: "#F3F4FA", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 30 : 22, borderWidth: 0, borderColor: "transparent", minHeight: 390, maxHeight: "88%", width: "100%", shadowColor: "#101828", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.14, shadowRadius: 22, elevation: 22 },
+  sheetHandle: { alignSelf: "center", width: 38, height: 4, borderRadius: 3, backgroundColor: "#C9CBD5", marginBottom: 12 },
   sheetHeader: { flexDirection: "row", alignItems: "center" },
   sheetTitle: {
     fontSize: 19,
@@ -8186,21 +8543,21 @@ const s = StyleSheet.create({
     gap: 8,
   },
   profileHeaderBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 90,
+    width: 42,
+    height: 42,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F7F8FC",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.72)",
+    borderColor: "#ECEEF5",
     marginLeft: 8,
-    marginRight: 9,
-    shadowColor: "#312E81",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.16,
-    shadowRadius: 7,
-    elevation: 3,
+    marginRight: 4,
+    shadowColor: "#1F2A5A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 1,
   },
   quickActionText: {
     flexShrink: 1,
@@ -8291,23 +8648,71 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 2,
   },
-  variantPickerOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15,23,42,0.48)",
+  permissionIntroOverlay: { flex: 1, alignItems: "stretch", justifyContent: "flex-end", paddingHorizontal: 0, backgroundColor: "rgba(18, 20, 32, 0.58)" },
+  permissionIntroCard: { width: "100%", maxWidth: "100%", maxHeight: "82%", borderTopLeftRadius: 26, borderTopRightRadius: 26, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, backgroundColor: "#F3F4FA", paddingHorizontal: 20, paddingTop: 24, paddingBottom: Platform.OS === "ios" ? 34 : 24, alignItems: "center", overflow: "hidden", elevation: 22, shadowColor: "#101828", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.14, shadowRadius: 22 },
+  permissionIntroIconWrap: {
+    width: 128,
+    height: 128,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    position: "relative",
   },
-  variantPickerSheet: {
-    width: "100%",
-    maxHeight: "82%",
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: Platform.OS === "ios" ? 30 : 18,
+  permissionIntroSlash: {
+    position: "absolute",
+    width: 150,
+    height: 7,
+    borderRadius: 5,
+    backgroundColor: "#E9344B",
+    transform: [{ rotate: "-48deg" }],
     borderWidth: 1,
-    borderColor: "#E8EAF6",
+    borderColor: "#FFFFFF",
   },
+  permissionIntroTitle: {
+    color: "#292929",
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: 2,
+  },
+  permissionIntroDescription: {
+    color: "#667085",
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 20,
+    paddingHorizontal: 2,
+  },
+  permissionIntroDivider: {
+    height: 1,
+    width: "100%",
+    backgroundColor: "#E8E8E8",
+  },
+  permissionIntroPrimary: {
+    width: "100%",
+    minHeight: 57,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  permissionIntroPrimaryText: {
+    color: "#287C35",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  permissionIntroSecondary: {
+    width: "100%",
+    minHeight: 57,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  permissionIntroSecondaryText: {
+    color: "#596273",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  variantPickerOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(18, 20, 32, 0.58)" },
+  variantPickerSheet: { width: "100%", maxHeight: "82%", backgroundColor: "#F3F4FA", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 30 : 22, borderWidth: 0, borderColor: "transparent", shadowColor: "#101828", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.14, shadowRadius: 22, elevation: 22 },
   variantPickerHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -8414,6 +8819,41 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  variantAttributeList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 3,
+  },
+  variantAttributeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F8",
+    borderWidth: 1,
+    borderColor: "#E8EAF2",
+  },
+  variantAttributeChipSelected: {
+    backgroundColor: "#E9E7FF",
+    borderColor: "#C7C3FF",
+  },
+  variantAttributeKey: {
+    color: C.inkMuted,
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  variantAttributeValue: {
+    color: C.ink,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  variantAttributeValueSelected: {
+    color: C.brandDark,
+  },
   variantOptionSku: {
     marginTop: 4,
     color: C.inkSoft,
@@ -8450,7 +8890,6 @@ const s = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.5,
   },
-
   productPreviewOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.76)",
