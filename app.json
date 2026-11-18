@@ -3,7 +3,7 @@
     "name": "OdiKart",
     "slug": "android_odikart",
     "version": "1.0.0",
-    "orientation": "portrait",
+   "orientation": "default",
     "icon": "./assets/images/odikart.webp",
     "scheme": "odikart",
     "userInterfaceStyle": "automatic",

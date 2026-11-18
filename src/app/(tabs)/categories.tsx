@@ -27,6 +27,7 @@ import {
   increaseCartItem,
 } from "../../api/cart";
 import { getCategories } from "../../api/categories";
+import api from "../../api/api";
 import { getProducts } from "../../api/products";
 import {
   addToWishlist,
@@ -68,6 +69,15 @@ type Product = {
   productImage?: any;
   category?: any;
   subcategory?: any;
+  [key: string]: any;
+};
+
+type SubCategory = {
+  _id?: string;
+  id?: string;
+  name?: string;
+  title?: string;
+  image?: any;
   [key: string]: any;
 };
 
@@ -216,6 +226,64 @@ function getCategoryImage(category: Category): string {
   );
 }
 
+function getSubCategoryImage(subCategory: SubCategory): string {
+  return findImage({
+    image: subCategory.image,
+    imageUrl: subCategory.imageUrl,
+    image_url: subCategory.image_url,
+    thumbnail: subCategory.thumbnail,
+    subCategoryImage: subCategory.subCategoryImage,
+    subcategoryImage: subCategory.subcategoryImage,
+    categoryImage: subCategory.categoryImage,
+    icon: subCategory.icon,
+  });
+}
+
+
+const SUBCATEGORY_COLORS = [
+  { background: "#E8F1FF", icon: "#3973C9" },
+  { background: "#FFF0E5", icon: "#D97732" },
+  { background: "#E8F7EE", icon: "#278653" },
+  { background: "#F4EAFE", icon: "#8650C4" },
+  { background: "#FFF1F3", icon: "#D34E70" },
+  { background: "#E5F7F8", icon: "#238B91" },
+  { background: "#FFF7DF", icon: "#B88620" },
+  { background: "#EDEEFF", icon: "#5546C7" },
+];
+
+function getSubCategoryColor(index: number) {
+  return SUBCATEGORY_COLORS[index % SUBCATEGORY_COLORS.length];
+}
+
+function SubCategoryThumb({
+  subCategory,
+  index,
+}: {
+  subCategory: SubCategory;
+  index: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const uri = getSubCategoryImage(subCategory);
+  const colors = getSubCategoryColor(index);
+  const thumbStyle = { backgroundColor: colors.background };
+
+  return (
+    <View style={[styles.subCategoryThumbWrap, thumbStyle]}>
+      {uri && !failed ? (
+        <Image
+          source={{ uri }}
+          style={styles.subCategoryImage}
+          resizeMode="contain"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Ionicons name="grid-outline" size={16} color={colors.icon} />
+      )}
+    </View>
+  );
+}
+
+
 function getProductName(product: Product) {
   return String(product.name || product.title || "Product");
 }
@@ -345,23 +413,38 @@ function belongsToCategory(product: Product, category: Category): boolean {
   const tokens = new Set<string>();
   [
     product.category,
-    product.subcategory,
     product.categoryId,
     product.category_id,
     product.categoryName,
     product.category_name,
-    product.subcategory,
-    product.subcategoryId,
-    product.subcategory_id,
-    product.subcategoryName,
-    product.subcategory_name,
     product.categories,
-    product.subCategories,
-    product.subcategories,
   ].forEach((value) => collectCategoryTokens(value, tokens));
   return (
     (!!categoryId && tokens.has(categoryId)) ||
     (!!categoryName && tokens.has(categoryName))
+  );
+}
+
+function belongsToSubCategory(product: Product, subCategory: SubCategory): boolean {
+  const subCategoryId = getId(subCategory).trim().toLowerCase();
+  const subCategoryName = getName(subCategory).trim().toLowerCase();
+  const tokens = new Set<string>();
+  [
+    product.subcategory,
+    product.subCategory,
+    product.subcategoryId,
+    product.subCategoryId,
+    product.subcategory_id,
+    product.subCategory_id,
+    product.subcategoryName,
+    product.subCategoryName,
+    product.subcategory_name,
+    product.subCategories,
+    product.subcategories,
+  ].forEach((value) => collectCategoryTokens(value, tokens));
+  return (
+    (!!subCategoryId && tokens.has(subCategoryId)) ||
+    (!!subCategoryName && tokens.has(subCategoryName))
   );
 }
 
@@ -692,6 +775,9 @@ export default function CategoriesScreen() {
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedCategoryName, setSelectedCategoryName] =
     useState("All Products");
+  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState("");
+  const [subCategoriesLoading, setSubCategoriesLoading] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -705,6 +791,7 @@ export default function CategoriesScreen() {
   const cartBusy = useRef(false);
   const requestRef = useRef(false);
   const initializedRef = useRef(false);
+  const hasLoadedDataRef = useRef(false);
 
   const syncCart = useCallback(async () => {
     const response: any = await getCart();
@@ -854,8 +941,41 @@ export default function CategoriesScreen() {
 
       if (refresh) setRefreshing(true);
 
+      let hasCachedData = false;
+
       try {
-        // Fetch only the data required to draw this screen first.
+        // 1) Paint saved categories/products first. The user can browse
+        // immediately while the latest API response is fetched in parallel
+        // only after the local cache has been applied.
+        if (!hasLoadedDataRef.current) {
+          try {
+            const rawCache = await AsyncStorage.getItem(CACHE_KEY);
+            if (rawCache) {
+              const cached = JSON.parse(rawCache) as CacheData;
+              const cachedCategories = Array.isArray(cached.categories)
+                ? cached.categories
+                : [];
+              const cachedProducts = Array.isArray(cached.products)
+                ? cached.products
+                : [];
+
+              if (cachedCategories.length || cachedProducts.length) {
+                setCategories(cachedCategories);
+                setProducts(cachedProducts);
+                hasCachedData = true;
+                hasLoadedDataRef.current = true;
+                setLoading(false);
+              }
+            }
+          } catch (cacheError) {
+            console.log("CATEGORY CACHE READ ERROR:", cacheError);
+          }
+        } else {
+          hasCachedData = true;
+        }
+
+        // 2) Refresh in the background. Existing cached content stays visible
+        // during this request; pull-to-refresh also keeps the current page.
         const [categoryResponse, productResponse] = await Promise.all([
           getCategories(),
           getProducts(),
@@ -870,42 +990,34 @@ export default function CategoriesScreen() {
           "products",
         ) as Product[];
 
-        // Render products immediately; cart and wishlist sync must not block them.
         setCategories(nextCategories);
         setProducts(nextProducts);
+        hasLoadedDataRef.current = true;
         setLoading(false);
 
-        // Persist data without blocking the UI.
+        // Save the newest successful response for the next visit/offline use.
         AsyncStorage.setItem(
           CACHE_KEY,
           JSON.stringify({
             savedAt: Date.now(),
             categories: nextCategories,
             products: nextProducts,
-          }),
+          } satisfies CacheData),
         ).catch((e) => console.log("CATEGORY CACHE WRITE ERROR:", e));
 
-        // Update cart and wishlist quietly in the background.
+        // Cart and wishlist are independent; never block the product grid.
         void Promise.allSettled([syncCart(), syncWishlist()]);
       } catch (e: any) {
         console.log("CATEGORY PRODUCTS SCREEN ERROR:", e);
-        const message =
-          e?.response?.data?.message ||
-          e?.message ||
-          "Unable to load products.";
 
-        showToast(message);
-
-        // Keep the screen useful if the network request fails.
-        try {
-          const cached = await AsyncStorage.getItem(CACHE_KEY);
-          if (cached) {
-            const parsed = JSON.parse(cached) as CacheData;
-            setCategories(parsed.categories || []);
-            setProducts(parsed.products || []);
-          }
-        } catch (cacheError) {
-          console.log("CATEGORY CACHE READ ERROR:", cacheError);
+        // Cached content is still usable offline, so only show an error when
+        // there is nothing local to display.
+        if (!hasCachedData && !hasLoadedDataRef.current) {
+          const message =
+            e?.response?.data?.message ||
+            e?.message ||
+            "Unable to load products.";
+          showToast(message);
         }
       } finally {
         requestRef.current = false;
@@ -935,19 +1047,6 @@ export default function CategoriesScreen() {
       setSelectedCategoryName(String(params.categoryName));
   }, [params.categoryId, params.categoryName]);
 
-  React.useEffect(() => {
-    // Read the locally cached list immediately while the API refreshes.
-    AsyncStorage.getItem(CACHE_KEY)
-      .then((raw) => {
-        if (!raw || categories.length) return;
-        const cached = JSON.parse(raw) as CacheData;
-        setCategories(cached.categories || []);
-        setProducts(cached.products || []);
-        setLoading(false);
-      })
-      .catch((e) => console.log("CATEGORY CACHE READ ERROR:", e));
-  }, []);
-
   const selectedCategory = useMemo(
     () =>
       categories.find(
@@ -959,6 +1058,72 @@ export default function CategoriesScreen() {
       ),
     [categories, selectedCategoryId, selectedCategoryName],
   );
+
+  // Load subcategories for the active category. The category page API is
+  // fetched independently so subcategory chips do not depend on product data.
+  React.useEffect(() => {
+    let active = true;
+    const categoryId = selectedCategory
+      ? getId(selectedCategory)
+      : selectedCategoryId;
+
+    setSelectedSubCategoryId("");
+    if (!categoryId || selectedCategoryName === "All Products") {
+      setSubCategories([]);
+      setSubCategoriesLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    const embedded =
+      selectedCategory?.subCategories ??
+      selectedCategory?.subcategories ??
+      selectedCategory?.children ??
+      [];
+    if (Array.isArray(embedded) && embedded.length > 0) {
+      setSubCategories(embedded);
+    } else {
+      setSubCategories([]);
+    }
+
+    const loadSubCategories = async () => {
+      setSubCategoriesLoading(true);
+      try {
+        const response = await api.get(
+          `/category/${encodeURIComponent(categoryId)}/subcategories`,
+        );
+        const payload = response?.data;
+        const list =
+          payload?.subCategories ??
+          payload?.subcategories ??
+          payload?.data?.subCategories ??
+          payload?.data?.subcategories ??
+          payload?.data ??
+          (Array.isArray(payload) ? payload : []);
+        if (active && Array.isArray(list)) {
+          const unique = new Map<string, SubCategory>();
+          list.forEach((item: any) => {
+            const id = getId(item);
+            if (id && item?.isActive !== false) unique.set(id, item);
+          });
+          setSubCategories(Array.from(unique.values()));
+        }
+      } catch (error: any) {
+        console.log(
+          "LOAD CATEGORY SUBCATEGORIES ERROR:",
+          error?.response?.data || error?.message || error,
+        );
+      } finally {
+        if (active) setSubCategoriesLoading(false);
+      }
+    };
+
+    void loadSubCategories();
+    return () => {
+      active = false;
+    };
+  }, [selectedCategory, selectedCategoryId, selectedCategoryName]);
 
   const visibleProducts = useMemo(() => {
     let list = products;
@@ -979,14 +1144,7 @@ export default function CategoriesScreen() {
           product.category_id,
           product.categoryName,
           product.category_name,
-          product.subcategory,
-          product.subcategoryId,
-          product.subcategory_id,
-          product.subcategoryName,
-          product.subcategory_name,
           product.categories,
-          product.subcategories,
-          product.subCategories,
         ].forEach((value) => collectCategoryTokens(value, tokens));
         return (
           (!!wantedId && tokens.has(wantedId)) ||
@@ -994,6 +1152,18 @@ export default function CategoriesScreen() {
         );
       });
     }
+
+    if (selectedSubCategoryId) {
+      const activeSubCategory = subCategories.find(
+        (item) => getId(item) === selectedSubCategoryId,
+      );
+      if (activeSubCategory) {
+        list = list.filter((product) =>
+          belongsToSubCategory(product, activeSubCategory),
+        );
+      }
+    }
+
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       list = list.filter((product) =>
@@ -1007,16 +1177,20 @@ export default function CategoriesScreen() {
     searchQuery,
     selectedCategoryId,
     selectedCategoryName,
+    selectedSubCategoryId,
+    subCategories,
   ]);
 
   const selectCategory = (category: Category | null) => {
     if (!category) {
       setSelectedCategoryId("");
       setSelectedCategoryName("All Products");
+      setSelectedSubCategoryId("");
       return;
     }
     setSelectedCategoryId(getId(category));
     setSelectedCategoryName(getName(category));
+    setSelectedSubCategoryId("");
   };
 
   const openProduct = (product: Product) => {
@@ -1188,6 +1362,67 @@ export default function CategoriesScreen() {
               </View>
             </View>
           )}
+
+          {selectedCategoryName !== "All Products" &&
+          (subCategories.length > 0 || subCategoriesLoading) ? (
+            <View style={styles.subCategorySection}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.subCategoryList}
+              >
+                <Pressable
+                  onPress={() => setSelectedSubCategoryId("")}
+                  style={[
+                    styles.subCategoryChip,
+                    !selectedSubCategoryId && styles.subCategoryChipActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.subCategoryThumbWrap,
+                      { backgroundColor: "#EDEEFF" },
+                    ]}
+                  >
+                    <Ionicons name="apps-outline" size={16} color="#5546C7" />
+                  </View>
+                  <Text
+                    style={[
+                      styles.subCategoryChipText,
+                      !selectedSubCategoryId && styles.subCategoryChipTextActive,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </Pressable>
+                {subCategories.map((item, index) => {
+                  const id = getId(item);
+                  const active = selectedSubCategoryId === id;
+                  return (
+                    <Pressable
+                      key={id || `${getName(item)}-${index}`}
+                      onPress={() => setSelectedSubCategoryId(id)}
+                      style={[
+                        styles.subCategoryChip,
+                        active && styles.subCategoryChipActive,
+                      ]}
+                    >
+                      <SubCategoryThumb subCategory={item} index={index} />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.subCategoryChipText,
+                          active && styles.subCategoryChipTextActive,
+                        ]}
+                      >
+                        {getName(item)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
 
           {loading && products.length === 0 ? (
             <ScrollView
@@ -1442,6 +1677,54 @@ const styles = StyleSheet.create({
     backgroundColor: "#EEF0F8",
   },
   countText: { color: "#68748A", fontSize: 10, fontWeight: "800" },
+  subCategorySection: {
+    marginBottom: 10,
+  },
+  subCategoryList: {
+    paddingVertical: 3,
+    paddingRight: 8,
+    gap: 7,
+  },
+  subCategoryChip: {
+    minHeight: 58,
+    minWidth: 68,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#E5E7F0",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  subCategoryThumbWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  subCategoryImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 9,
+  },
+  subCategoryChipActive: {
+    backgroundColor: "#dfddf6",
+    borderColor: "#4F46E5"
+  },
+  subCategoryChipText: {
+    maxWidth: 86,
+    color: "#68748A",
+    fontSize: 9,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  subCategoryChipTextActive: {
+    color:"#2e189a"
+  },
   productListContent: { paddingBottom: 35, flexGrow: 1 },
   productRow: { gap: 8, marginBottom: 9 },
   productCard: {
