@@ -7,14 +7,12 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
-  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  UIManager,
   View,
 } from "react-native";
 
@@ -40,13 +38,6 @@ import {
 import { BACKEND_URL } from "../../api/api";
 
 import { useAuth } from "../../hooks/useAuth";
-
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 /* =========================================================
 
@@ -198,10 +189,6 @@ export default function LoginModal() {
   const [phoneHintLoading, setPhoneHintLoading] = useState(false);
   const autoSendPhoneRef = useRef("");
   const otpSendingRef = useRef(false);
-  // Prevent the native Google phone-number picker from opening more than once
-  // during this LoginModal screen instance.
-  const phoneHintAutoOpened = useRef(false);
-
   const [error, setError] = useState("");
 
   // Development-only diagnostics shown on-screen to identify the exact failing stage.
@@ -216,6 +203,8 @@ export default function LoginModal() {
   >(null);
 
   const [keyboardUp, setKeyboardUp] = useState(false);
+
+  const phoneInputRef = useRef<TextInput | null>(null);
 
   const otpInputRef = useRef<TextInput | null>(null);
 
@@ -263,7 +252,7 @@ export default function LoginModal() {
 
       if (!available) {
         setError(
-          "Phone number selection is unavailable on this device. Please enter your number manually.",
+          "Google could not find a phone number to share on this device. Please enter your number manually.",
         );
         return;
       }
@@ -300,29 +289,34 @@ export default function LoginModal() {
     } catch (err: any) {
       debugError("Google phone number hint failed", err);
       setError(
-        "Couldn't open phone number selection. You can still enter your mobile number manually.",
+        "Couldn't open Google’s phone number picker. You can still enter your mobile number manually.",
       );
     } finally {
       setPhoneHintLoading(false);
     }
   };
 
-  /* ---------- automatically offer the Google phone-number picker ---------- */
+  /* ---------- focus the phone field when the modal opens ---------- */
+
+  // Offer Google's native phone-number picker automatically when the login
+  // phone step opens. If the user dismisses it, focus manual entry instead.
+  const phoneHintPromptedRef = useRef(false);
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
+    if (step !== "phone") return;
+    if (phoneHintPromptedRef.current) return;
 
-    // Let the login modal finish appearing before opening Google's native UI.
-    // The ref also prevents repeated prompts during this screen instance.
-    const timeout = setTimeout(() => {
-      if (phoneHintAutoOpened.current) return;
-
-      phoneHintAutoOpened.current = true;
-      void choosePhoneNumber();
-    }, 700);
+    phoneHintPromptedRef.current = true;
+    const timeout = setTimeout(async () => {
+      if (Platform.OS === "android") {
+        await choosePhoneNumber();
+      }
+      phoneInputRef.current?.focus();
+    }, Platform.OS === "android" ? 750 : 450);
 
     return () => clearTimeout(timeout);
-  }, []);
+  }, [step]);
+
 
   /* ---------- resend timer ---------- */
 
@@ -343,8 +337,9 @@ export default function LoginModal() {
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       () => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
+        // Let Android resize the native screen using adjustResize.
+        // Do not manually translate the sheet: combining both approaches makes
+        // the sheet jump and can cause the focused TextInput to lose the IME.
         setKeyboardUp(true);
       },
     );
@@ -352,8 +347,6 @@ export default function LoginModal() {
     const hide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
         setKeyboardUp(false);
       },
     );
@@ -962,451 +955,481 @@ export default function LoginModal() {
 
       <KeyboardAvoidingView
         style={s.positioner}
-        behavior="padding"
+        // Android uses the native adjustResize setting from app.json.
+        // Keep one keyboard-positioning system active to avoid double movement.
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
         pointerEvents="box-none"
       >
-        <SafeAreaView style={s.sheet} edges={["bottom"]}>
-          <View style={s.sheetHandleWrap} pointerEvents="none">
-            <View style={s.sheetHandle} />
-          </View>
-
-          {/* ---------- ODIKART LOGO HEADER ---------- */}
-          <View
-            style={[
-              s.header,
-              { height: keyboardUp ? HEADER_HEIGHT_COMPACT : HEADER_HEIGHT },
+        <View
+          style={[s.sheetContainer, keyboardUp && s.sheetContainerKeyboard]}
+        >
+          {/* Floating close control centered above the sheet */}
+          <Pressable
+            onPress={closeModal}
+            style={({ pressed }) => [
+              s.floatingCloseButton,
+              pressed && s.floatingCloseButtonPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Close login"
+            hitSlop={10}
           >
-            <View style={s.headerTop}>
-              {step === "phone" ? (
-                <Image
-                  source={BRAND_LOGO}
-                  style={s.brandLogoImage}
-                  resizeMode="contain"
-                  accessibilityLabel="OdiKart logo"
-                />
-              ) : (
-                <Pressable
-                  onPress={goBack}
-                  disabled={loading}
-                  style={s.headerAction}
-                  accessibilityRole="button"
-                  accessibilityLabel="Go back"
-                >
-                  <Ionicons name="arrow-back" size={23} color="#333847" />
-                </Pressable>
-              )}
-              <Pressable
-                onPress={closeModal}
-                style={s.headerAction}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
-                <Ionicons name="close" size={27} color="#454545" />
-              </Pressable>
+            <Ionicons name="close" size={24} color="#27304A" />
+          </Pressable>
+
+          <SafeAreaView style={s.sheet} edges={["bottom"]}>
+            <View style={s.sheetHandleWrap} pointerEvents="none">
+              <View style={s.sheetHandle} />
             </View>
-          </View>
 
-          {/* ---------- CONTENT ---------- */}
-
-          <ScrollView
-            style={s.scroll}
-            contentContainerStyle={s.content}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <Animated.View
-              style={{
-                opacity: stepAnim,
-                transform: [
-                  {
-                    translateY: stepAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [12, 0],
-                    }),
-                  },
-                ],
-              }}
+            {/* ---------- ODIKART LOGO HEADER ---------- */}
+            <View
+              style={[
+                s.header,
+                { height: keyboardUp ? HEADER_HEIGHT_COMPACT : HEADER_HEIGHT },
+              ]}
             >
-              {step === "completeProfile" ? (
-                <View style={s.verifiedChip}>
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={16}
-                    color={C.success}
+              <View style={s.headerTop}>
+                {step === "phone" ? (
+                  <Image
+                    source={BRAND_LOGO}
+                    style={s.brandLogoImage}
+                    resizeMode="contain"
+                    accessibilityLabel="OdiKart logo"
                   />
-
-                  <Text style={s.verifiedText}>
-                    +91 {displayPhone(phone)} verified
-                  </Text>
-                </View>
-              ) : null}
-
-              <Text style={[s.title, step === "phone" && s.phoneTitle]}>
-                {step === "phone" ? "Log in or Sign up" : title}
-              </Text>
-
-              {step !== "phone" ? (
-                <Text style={s.subtitle}>
-                  {step === "otp" ? (
-                    <>
-                      We sent a 6-digit code to{" "}
-                      <Text style={s.subtitleStrong}>
-                        +91 {displayPhone(phone)}
-                      </Text>
-                    </>
-                  ) : null}
-
-                  {step === "completeProfile"
-                    ? "Add your name to finish setting up your account."
-                    : null}
-                </Text>
-              ) : null}
-
-              {/* ----- STEP 1: PHONE ----- */}
-
-              {step === "phone" ? (
-                <>
-                  <View
-                    style={[
-                      s.field,
-                      focused === "phone" && s.fieldFocused,
-                      !!error && s.fieldError,
-                    ]}
-                  >
-                    <Text style={s.countryCode}>+91</Text>
-
-                    <TextInput
-                      style={s.fieldInput}
-                      value={displayPhone(phone)}
-                      onChangeText={(value) => {
-                        setPhone(normalizePhone(value));
-                        setError("");
-                      }}
-                      onFocus={() => setFocused("phone")}
-                      onBlur={() => setFocused(null)}
-                      onSubmitEditing={sendPhoneOtp}
-                      placeholder="Enter your mobile number"
-                      placeholderTextColor={C.inkMuted}
-                      keyboardType="phone-pad"
-                      maxLength={11}
-                      editable={!loading}
-                      autoCorrect={false}
-                      autoComplete="tel"
-                      textContentType="telephoneNumber"
-                      importantForAutofill="yes"
-                      selectionColor={C.brand}
-                      accessibilityLabel="Mobile number"
-                    />
-
-                    {phoneValid ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color={C.success}
-                      />
-                    ) : null}
-                  </View>
-                </>
-              ) : null}
-
-              {/* ----- STEP 2: OTP ----- */}
-
-              {step === "otp" ? (
-                <>
-                  <View style={s.otpInfoRow}>
-                    <View style={s.otpInfoIcon}>
-                      <Ionicons
-                        name="chatbubble-ellipses"
-                        size={17}
-                        color={C.brand}
-                      />
-                    </View>
-                    <View style={s.otpInfoCopy}>
-                      <Text style={s.otpInfoTitle}>
-                        6-digit verification code
-                      </Text>
-                      <Text style={s.otpInfoSubtitle}>
-                        Check your SMS. You can tap the code suggestion or paste
-                        it here.
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Animated.View
-                    onTouchStart={() => {
-                      if (!loading) otpInputRef.current?.focus();
-                    }}
-                    style={[s.otpWrap, { transform: [{ translateX: shakeX }] }]}
-                  >
-                    <View style={s.otpRow} pointerEvents="none">
-                      {Array.from({ length: OTP_LENGTH }).map((_, i) => {
-                        const digit = otp[i] ?? "";
-
-                        const active =
-                          focused === "otp" &&
-                          i === Math.min(otp.length, OTP_LENGTH - 1);
-
-                        return (
-                          <View
-                            key={i}
-                            style={[
-                              s.otpBox,
-                              !!digit && s.otpBoxFilled,
-                              active && s.fieldFocused,
-                              !!error && s.fieldError,
-                            ]}
-                          >
-                            <Text style={s.otpDigit}>{digit}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-
-                    <TextInput
-                      ref={otpInputRef}
-                      style={s.otpHiddenInput}
-                      value={otp}
-                      onChangeText={(value) => {
-                        const nextOtp = value
-                          .replace(/\D/g, "")
-                          .slice(0, OTP_LENGTH);
-
-                        setOtp(nextOtp);
-                        setError("");
-
-                        // Verify immediately when all 6 digits are entered
-                        // (including SMS autofill). The ref prevents duplicate requests.
-                        if (
-                          nextOtp.length === OTP_LENGTH &&
-                          !verifyingRef.current &&
-                          !loadingRef.current
-                        ) {
-                          // SMS autofill, keyboard suggestion, and paste all
-                          // reach this same handler. Verify once the full code
-                          // has been inserted into the controlled input.
-                          void verifyPhoneOtp(nextOtp);
-                        }
-                      }}
-                      onFocus={() => setFocused("otp")}
-                      onBlur={() => setFocused(null)}
-                      showSoftInputOnFocus={true}
-                      keyboardType="number-pad"
-                      maxLength={OTP_LENGTH}
-                      editable={!loading}
-                      // Android SMS OTP autofill: when the device keyboard
-                      // offers the detected code, it is inserted into this
-                      // controlled input and the existing 6-digit handler
-                      // verifies it automatically.
-                      // Android uses the sms-otp autofill hint; iOS uses
-                      // oneTimeCode. The platform-specific hint helps the OS
-                      // offer the code without giving the app permission to
-                      // read the user's entire SMS inbox.
-                      autoComplete={
-                        Platform.OS === "android" ? "sms-otp" : "one-time-code"
-                      }
-                      textContentType="oneTimeCode"
-                      importantForAutofill="yes"
-                      autoCorrect={false}
-                      spellCheck={false}
-                      contextMenuHidden={false}
-                      caretHidden
-                      selectionColor="transparent"
-                      accessibilityLabel="6-digit verification code"
-                      accessibilityHint="The code may be suggested automatically when the verification SMS arrives. You can also paste the code."
-                    />
-                  </Animated.View>
-                </>
-              ) : null}
-
-              {/* ----- STEP 3: PROFILE ----- */}
-
-              {step === "completeProfile" ? (
-                <>
-                  <Text style={s.label}>First name</Text>
-
-                  <View
-                    style={[s.field, focused === "first" && s.fieldFocused]}
-                  >
-                    <Ionicons
-                      name="person-outline"
-                      size={19}
-                      color={focused === "first" ? C.brand : C.inkMuted}
-                    />
-
-                    <TextInput
-                      style={[s.fieldInput, { marginLeft: 10 }]}
-                      value={profile.firstName}
-                      onChangeText={(value) => {
-                        setProfile((current) => ({
-                          ...current,
-                          firstName: value,
-                        }));
-
-                        setError("");
-                      }}
-                      onFocus={() => setFocused("first")}
-                      onBlur={() => setFocused(null)}
-                      onSubmitEditing={() => lastNameRef.current?.focus()}
-                      placeholder="Enter first name"
-                      placeholderTextColor={C.inkMuted}
-                      autoCapitalize="words"
-                      autoComplete="given-name"
-                      textContentType="givenName"
-                      returnKeyType="next"
-                      editable={!loading}
-                      selectionColor={C.brand}
-                    />
-                  </View>
-
-                  <Text style={[s.label, { marginTop: 14 }]}>Last name</Text>
-
-                  <View style={[s.field, focused === "last" && s.fieldFocused]}>
-                    <Ionicons
-                      name="person-outline"
-                      size={19}
-                      color={focused === "last" ? C.brand : C.inkMuted}
-                    />
-
-                    <TextInput
-                      ref={lastNameRef}
-                      style={[s.fieldInput, { marginLeft: 10 }]}
-                      value={profile.lastName}
-                      onChangeText={(value) => {
-                        setProfile((current) => ({
-                          ...current,
-                          lastName: value,
-                        }));
-
-                        setError("");
-                      }}
-                      onFocus={() => setFocused("last")}
-                      onBlur={() => setFocused(null)}
-                      onSubmitEditing={completePhoneProfile}
-                      placeholder="Enter last name"
-                      placeholderTextColor={C.inkMuted}
-                      autoCapitalize="words"
-                      autoComplete="family-name"
-                      textContentType="familyName"
-                      returnKeyType="done"
-                      editable={!loading}
-                      selectionColor={C.brand}
-                    />
-                  </View>
-                </>
-              ) : null}
-
-              {/* ----- ERROR ----- */}
-
-              {!!error ? (
-                <View style={s.errorBox} accessibilityLiveRegion="polite">
-                  <Ionicons name="alert-circle" size={19} color={C.danger} />
-
-                  <Text style={s.errorText}>{error}</Text>
-                </View>
-              ) : null}
-
-              {__DEV__ && !!diagnostic ? (
-                <View style={s.diagnosticBox} accessibilityLiveRegion="polite">
-                  <Text style={s.diagnosticTitle}>
-                    DEBUG DETAILS (development only)
-                  </Text>
-                  <Text selectable style={s.diagnosticText}>
-                    {diagnostic}
-                  </Text>
+                ) : (
                   <Pressable
-                    onPress={() => {
-                      debugLog(
-                        "diagnostic copied manually; use the visible text",
-                      );
-                    }}
-                  >
-                    <Text style={s.diagnosticHint}>
-                      Copy these details from the screen or Metro logs. Do not
-                      share OTPs or tokens.
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {/* ----- PRIMARY ACTION ----- */}
-
-              <View style={{ height: 20 }} />
-
-              {step === "phone" ? (
-                <PrimaryButton
-                  title="Log in using OTP"
-                  icon="arrow-forward"
-                  loading={loading}
-                  enabled={phoneValid}
-                  onPress={() => {
-                    debugLog("Continue with Phone pressed");
-                    sendPhoneOtp();
-                  }}
-                />
-              ) : null}
-
-              {step === "phone" ? (
-                <Text style={s.termsText}>
-                  By continuing, you agree to OdiKart's Terms & Conditions and
-                  Privacy Policy.
-                </Text>
-              ) : null}
-
-              {step === "otp" ? (
-                <PrimaryButton
-                  title="Verify & Login"
-                  icon="checkmark"
-                  loading={loading}
-                  enabled={otp.length === OTP_LENGTH}
-                  onPress={() => {
-                    debugLog("Verify & Login pressed");
-                    verifyPhoneOtp();
-                  }}
-                />
-              ) : null}
-
-              {step === "completeProfile" ? (
-                <PrimaryButton
-                  title="Create My Account"
-                  icon="checkmark-circle"
-                  loading={loading}
-                  enabled={
-                    !!profile.firstName.trim() && !!profile.lastName.trim()
-                  }
-                  onPress={completePhoneProfile}
-                />
-              ) : null}
-
-              {/* ----- RESEND ----- */}
-
-              {step === "otp" ? (
-                <View style={s.resendRow}>
-                  <Text style={s.resendText}>Didn't receive the code?</Text>
-
-                  <Pressable
-                    onPress={sendPhoneOtp}
-                    disabled={timer > 0 || loading}
-                    hitSlop={10}
+                    onPress={goBack}
+                    disabled={loading}
+                    style={s.headerAction}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: timer > 0 || loading }}
+                    accessibilityLabel="Go back"
                   >
-                    <Text
-                      style={[s.link, (timer > 0 || loading) && s.linkDisabled]}
-                    >
-                      {timer > 0
-                        ? `Resend in ${formatTimer(timer)}`
-                        : "Resend OTP"}
-                    </Text>
+                    <Ionicons name="arrow-back" size={23} color="#333847" />
                   </Pressable>
-                </View>
-              ) : null}
-            </Animated.View>
+                )}
+              </View>
+            </View>
 
-            {/* ----- SECURITY NOTE ----- */}
-          </ScrollView>
-        </SafeAreaView>
+            {/* ---------- CONTENT ---------- */}
+
+            <ScrollView
+              style={s.scroll}
+              contentContainerStyle={s.content}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={
+                Platform.OS === "ios" ? "interactive" : "none"
+              }
+              automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+              showsVerticalScrollIndicator={false}
+            >
+              <Animated.View
+                style={{
+                  opacity: stepAnim,
+                  transform: [
+                    {
+                      translateY: stepAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [12, 0],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                {step === "completeProfile" ? (
+                  <View style={s.verifiedChip}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={16}
+                      color={C.success}
+                    />
+
+                    <Text style={s.verifiedText}>
+                      +91 {displayPhone(phone)} verified
+                    </Text>
+                  </View>
+                ) : null}
+
+                <Text style={[s.title, step === "phone" && s.phoneTitle]}>
+                  {step === "phone" ? "Log in or Sign up" : title}
+                </Text>
+
+                {step !== "phone" ? (
+                  <Text style={s.subtitle}>
+                    {step === "otp" ? (
+                      <>
+                        We sent a 6-digit code to{" "}
+                        <Text style={s.subtitleStrong}>
+                          +91 {displayPhone(phone)}
+                        </Text>
+                      </>
+                    ) : null}
+
+                    {step === "completeProfile"
+                      ? "Add your name to finish setting up your account."
+                      : null}
+                  </Text>
+                ) : null}
+
+                {/* ----- STEP 1: PHONE ----- */}
+
+                {step === "phone" ? (
+                  <>
+                    <View
+                      style={[
+                        s.field,
+                        focused === "phone" && s.fieldFocused,
+                        !!error && s.fieldError,
+                      ]}
+                    >
+                      <Text style={s.countryCode}>+91</Text>
+
+                      <TextInput
+                        ref={phoneInputRef}
+                        style={s.fieldInput}
+                        value={displayPhone(phone)}
+                        onChangeText={(value) => {
+                          setPhone(normalizePhone(value));
+                          setError("");
+                        }}
+                        onFocus={() => setFocused("phone")}
+                        onBlur={() => setFocused(null)}
+                        onSubmitEditing={sendPhoneOtp}
+                        placeholder="Enter your mobile number"
+                        placeholderTextColor={C.inkMuted}
+                        keyboardType="phone-pad"
+                        maxLength={11}
+                        editable={!loading}
+                        autoCorrect={false}
+                        autoComplete="tel"
+                        textContentType="telephoneNumber"
+                        importantForAutofill="yes"
+                        selectionColor={C.brand}
+                        accessibilityLabel="Mobile number"
+                      />
+
+                      {phoneValid ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color={C.success}
+                        />
+                      ) : null}
+                    </View>
+                  </>
+                ) : null}
+
+                {/* ----- STEP 2: OTP ----- */}
+
+                {step === "otp" ? (
+                  <>
+                    <View style={s.otpInfoRow}>
+                      <View style={s.otpInfoIcon}>
+                        <Ionicons
+                          name="chatbubble-ellipses"
+                          size={17}
+                          color={C.brand}
+                        />
+                      </View>
+                      <View style={s.otpInfoCopy}>
+                        <Text style={s.otpInfoTitle}>
+                          6-digit verification code
+                        </Text>
+                        <Text style={s.otpInfoSubtitle}>
+                          Check your SMS. You can tap the code suggestion or
+                          paste it here.
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Animated.View
+                      onTouchStart={() => {
+                        if (!loading) otpInputRef.current?.focus();
+                      }}
+                      style={[
+                        s.otpWrap,
+                        { transform: [{ translateX: shakeX }] },
+                      ]}
+                    >
+                      <View style={s.otpRow} pointerEvents="none">
+                        {Array.from({ length: OTP_LENGTH }).map((_, i) => {
+                          const digit = otp[i] ?? "";
+
+                          const active =
+                            focused === "otp" &&
+                            i === Math.min(otp.length, OTP_LENGTH - 1);
+
+                          return (
+                            <View
+                              key={i}
+                              style={[
+                                s.otpBox,
+                                !!digit && s.otpBoxFilled,
+                                active && s.fieldFocused,
+                                !!error && s.fieldError,
+                              ]}
+                            >
+                              <Text style={s.otpDigit}>{digit}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+
+                      <TextInput
+                        ref={otpInputRef}
+                        style={s.otpHiddenInput}
+                        value={otp}
+                        onChangeText={(value) => {
+                          const nextOtp = value
+                            .replace(/\D/g, "")
+                            .slice(0, OTP_LENGTH);
+
+                          setOtp(nextOtp);
+                          setError("");
+
+                          // Verify immediately when all 6 digits are entered
+                          // (including SMS autofill). The ref prevents duplicate requests.
+                          if (
+                            nextOtp.length === OTP_LENGTH &&
+                            !verifyingRef.current &&
+                            !loadingRef.current
+                          ) {
+                            // SMS autofill, keyboard suggestion, and paste all
+                            // reach this same handler. Verify once the full code
+                            // has been inserted into the controlled input.
+                            void verifyPhoneOtp(nextOtp);
+                          }
+                        }}
+                        onFocus={() => setFocused("otp")}
+                        onBlur={() => setFocused(null)}
+                        showSoftInputOnFocus={true}
+                        keyboardType="number-pad"
+                        maxLength={OTP_LENGTH}
+                        editable={!loading}
+                        // Android SMS OTP autofill: when the device keyboard
+                        // offers the detected code, it is inserted into this
+                        // controlled input and the existing 6-digit handler
+                        // verifies it automatically.
+                        // Android uses the sms-otp autofill hint; iOS uses
+                        // oneTimeCode. The platform-specific hint helps the OS
+                        // offer the code without giving the app permission to
+                        // read the user's entire SMS inbox.
+                        autoComplete={
+                          Platform.OS === "android"
+                            ? "sms-otp"
+                            : "one-time-code"
+                        }
+                        textContentType="oneTimeCode"
+                        importantForAutofill="yes"
+                        autoCorrect={false}
+                        spellCheck={false}
+                        contextMenuHidden={false}
+                        caretHidden
+                        selectionColor="transparent"
+                        accessibilityLabel="6-digit verification code"
+                        accessibilityHint="The code may be suggested automatically when the verification SMS arrives. You can also paste the code."
+                      />
+                    </Animated.View>
+                  </>
+                ) : null}
+
+                {/* ----- STEP 3: PROFILE ----- */}
+
+                {step === "completeProfile" ? (
+                  <>
+                    <Text style={s.label}>First name</Text>
+
+                    <View
+                      style={[s.field, focused === "first" && s.fieldFocused]}
+                    >
+                      <Ionicons
+                        name="person-outline"
+                        size={19}
+                        color={focused === "first" ? C.brand : C.inkMuted}
+                      />
+
+                      <TextInput
+                        style={[s.fieldInput, { marginLeft: 10 }]}
+                        value={profile.firstName}
+                        onChangeText={(value) => {
+                          setProfile((current) => ({
+                            ...current,
+                            firstName: value,
+                          }));
+
+                          setError("");
+                        }}
+                        onFocus={() => setFocused("first")}
+                        onBlur={() => setFocused(null)}
+                        onSubmitEditing={() => lastNameRef.current?.focus()}
+                        placeholder="Enter first name"
+                        placeholderTextColor={C.inkMuted}
+                        autoCapitalize="words"
+                        autoComplete="given-name"
+                        textContentType="givenName"
+                        returnKeyType="next"
+                        editable={!loading}
+                        selectionColor={C.brand}
+                      />
+                    </View>
+
+                    <Text style={[s.label, { marginTop: 14 }]}>Last name</Text>
+
+                    <View
+                      style={[s.field, focused === "last" && s.fieldFocused]}
+                    >
+                      <Ionicons
+                        name="person-outline"
+                        size={19}
+                        color={focused === "last" ? C.brand : C.inkMuted}
+                      />
+
+                      <TextInput
+                        ref={lastNameRef}
+                        style={[s.fieldInput, { marginLeft: 10 }]}
+                        value={profile.lastName}
+                        onChangeText={(value) => {
+                          setProfile((current) => ({
+                            ...current,
+                            lastName: value,
+                          }));
+
+                          setError("");
+                        }}
+                        onFocus={() => setFocused("last")}
+                        onBlur={() => setFocused(null)}
+                        onSubmitEditing={completePhoneProfile}
+                        placeholder="Enter last name"
+                        placeholderTextColor={C.inkMuted}
+                        autoCapitalize="words"
+                        autoComplete="family-name"
+                        textContentType="familyName"
+                        returnKeyType="done"
+                        editable={!loading}
+                        selectionColor={C.brand}
+                      />
+                    </View>
+                  </>
+                ) : null}
+
+                {/* ----- ERROR ----- */}
+
+                {!!error ? (
+                  <View style={s.errorBox} accessibilityLiveRegion="polite">
+                    <Ionicons name="alert-circle" size={19} color={C.danger} />
+
+                    <Text style={s.errorText}>{error}</Text>
+                  </View>
+                ) : null}
+
+                {__DEV__ && !!diagnostic ? (
+                  <View
+                    style={s.diagnosticBox}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <Text style={s.diagnosticTitle}>
+                      DEBUG DETAILS (development only)
+                    </Text>
+                    <Text selectable style={s.diagnosticText}>
+                      {diagnostic}
+                    </Text>
+                    <Pressable
+                      onPress={() => {
+                        debugLog(
+                          "diagnostic copied manually; use the visible text",
+                        );
+                      }}
+                    >
+                      <Text style={s.diagnosticHint}>
+                        Copy these details from the screen or Metro logs. Do not
+                        share OTPs or tokens.
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {/* ----- PRIMARY ACTION ----- */}
+
+                <View style={{ height: 20 }} />
+
+                {step === "phone" ? (
+                  <PrimaryButton
+                    title="Log in using OTP"
+                    icon="arrow-forward"
+                    loading={loading}
+                    enabled={phoneValid}
+                    onPress={() => {
+                      debugLog("Continue with Phone pressed");
+                      sendPhoneOtp();
+                    }}
+                  />
+                ) : null}
+
+                {step === "phone" ? (
+                  <Text style={s.termsText}>
+                    By continuing, you agree to OdiKart's Terms & Conditions and
+                    Privacy Policy.
+                  </Text>
+                ) : null}
+
+                {step === "otp" ? (
+                  <PrimaryButton
+                    title="Verify & Login"
+                    icon="checkmark"
+                    loading={loading}
+                    enabled={otp.length === OTP_LENGTH}
+                    onPress={() => {
+                      debugLog("Verify & Login pressed");
+                      verifyPhoneOtp();
+                    }}
+                  />
+                ) : null}
+
+                {step === "completeProfile" ? (
+                  <PrimaryButton
+                    title="Create My Account"
+                    icon="checkmark-circle"
+                    loading={loading}
+                    enabled={
+                      !!profile.firstName.trim() && !!profile.lastName.trim()
+                    }
+                    onPress={completePhoneProfile}
+                  />
+                ) : null}
+
+                {/* ----- RESEND ----- */}
+
+                {step === "otp" ? (
+                  <View style={s.resendRow}>
+                    <Text style={s.resendText}>Didn't receive the code?</Text>
+
+                    <Pressable
+                      onPress={sendPhoneOtp}
+                      disabled={timer > 0 || loading}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: timer > 0 || loading }}
+                    >
+                      <Text
+                        style={[
+                          s.link,
+                          (timer > 0 || loading) && s.linkDisabled,
+                        ]}
+                      >
+                        {timer > 0
+                          ? `Resend in ${formatTimer(timer)}`
+                          : "Resend OTP"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </Animated.View>
+
+              {/* ----- SECURITY NOTE ----- */}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -1488,15 +1511,37 @@ const s = StyleSheet.create({
     flex: 1,
     width: "100%",
     justifyContent: "flex-end",
-    // Transparent route lets the actual previous screen remain visible.
-    backgroundColor: "rgba(12, 18, 45, 0.42)",
+    // Dim the previous screen without painting an opaque white backdrop.
+    backgroundColor: "rgba(12, 18, 45, 0.32)",
   },
 
   positioner: { flex: 1, width: "100%", justifyContent: "flex-end" },
 
-  sheet: {
-    flexShrink: 1,
+  sheetContainer: {
+    width: "100%",
+    height: "70%",
     maxHeight: "94%",
+    minHeight: 420,
+    flexShrink: 0,
+    position: "relative",
+  },
+
+  // With Android adjustResize, this 100% is the area above the keyboard.
+  // Giving the container a real height prevents the ScrollView from collapsing
+  // to the header's intrinsic height when the keyboard appears.
+  sheetContainerKeyboard: {
+    // Keep the login sheet as a bottom sheet above the keyboard instead of
+    // stretching it to the entire resized viewport.
+    height: "78%",
+    maxHeight: "90%",
+    minHeight: 0,
+  },
+
+  sheet: {
+    flex: 1,
+    width: "100%",
+    minHeight: 0,
+    maxHeight: "100%",
     overflow: "hidden",
     backgroundColor: C.surface,
     borderTopLeftRadius: 30,
@@ -1523,9 +1568,38 @@ const s = StyleSheet.create({
     width: 42,
     height: 4,
     borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "#D1D5DB",
   },
-  scroll: { flexShrink: 1 },
+
+  floatingCloseButton: {
+    position: "absolute",
+    top: -62,
+    alignSelf: "center",
+    zIndex: 100,
+    elevation: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
+
+  floatingCloseButtonPressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.94 }],
+  },
+
+  scroll: {
+    flex: 1,
+    minHeight: 0,
+  },
 
   /* header art */
 

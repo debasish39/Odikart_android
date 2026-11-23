@@ -6,7 +6,6 @@ import { LinearGradient } from "expo-linear-gradient"; // npx expo install expo-
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { router, useFocusEffect } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -157,91 +156,6 @@ const C = {
 const GUTTER = 16;
 const GRID_GAP = 12;
 const SHELF_CARD_W = 164;
-// Save odisha-banner.webp in assets/images/ (adjust the ../ count if this file lives elsewhere)
-
-const BANNERS = [
-  {
-    id: "dussehra-offer",
-    source: require("../../../assets/images/dusshera.webp"),
-    title: "Dussehra Special",
-    sub: "Celebrate the Victory of Good",
-    tagline: "Festive shopping starts on Odikart",
-    cta: "Shop Festive Deals",
-    label: "Celebrate Dussehra with festive shopping deals on Odikart.",
-  },
-  {
-    id: "local",
-    source: require("../../../assets/images/odisha-banner.webp"),
-    title: "Made in Odisha",
-    sub: "Support Local Businesses",
-    tagline: "Discover the pride of Odisha",
-    cta: "Shop Now",
-    label: "Made in Odisha. Support local businesses.",
-  },
-  {
-    id: "crafts",
-    source: require("../../../assets/images/odisha-crafts.webp"),
-    title: "Handcrafted Treasures",
-    sub: "Sambalpuri, Pattachitra & More",
-    tagline: "Crafted with love by Odisha artisans",
-    cta: "Explore Crafts",
-    label: "Explore authentic handcrafted treasures from Odisha.",
-  },
-  {
-    id: "deals",
-    source: require("../../../assets/images/odisha-deals.webp"),
-    title: "Amazing Deals",
-    sub: "Save More on Every Order",
-    tagline: "Discover great prices on your favorites",
-    cta: "Explore Offers",
-    label: "Explore exciting deals and offers on Odikart.",
-  },
-  {
-    id: "fresh",
-    source: require("../../../assets/images/odisha-fresh.webp"),
-    title: "Everyday Essentials",
-    sub: "Everything Your Home Needs",
-    tagline: "Smart shopping for everyday living",
-    cta: "Shop Essentials",
-    label: "Shop daily essentials and home products on Odikart.",
-  },
-  {
-    id: "food",
-    source: require("../../../assets/images/odisha-fresh.webp"),
-    title: "Flavours of Odisha",
-    sub: "Traditional Snacks & Specialities",
-    tagline: "Bring authentic tastes home",
-    cta: "Explore Foods",
-    label: "Discover traditional Odisha snacks and food products.",
-  },
-  {
-    id: "festive",
-    source: require("../../../assets/images/odisha-festive.webp"),
-    title: "Celebrate Together",
-    sub: "Festive Finds for Every Occasion",
-    tagline: "Make every celebration special",
-    cta: "Celebrate Now",
-    label: "Discover festive shopping picks for every celebration on Odikart.",
-  },
-];
-
-type HomeBanner = {
-  id: string;
-  title: string;
-  sub: string;
-  tagline: string;
-  cta: string;
-  label: string;
-  imageUrl?: string;
-  source?: any;
-  raw?: any;
-};
-
-const FALLBACK_HOME_BANNERS: HomeBanner[] = BANNERS.map((banner) => ({
-  ...banner,
-  source: banner.source,
-}));
-
 // Category banners are reused instantly when shoppers revisit a category.
 const categoryBannerMemoryCache = new Map<string, HomeBanner>();
 const categoryBannerStorageKey = (categoryId: string) =>
@@ -792,23 +706,22 @@ function CategoryGridSkeleton() {
   );
 }
 
-function HomeSkeleton() {
+function HomeSkeleton({
+  banners = [],
+}: {
+  banners?: Array<{ id: string; imageUrl?: string; label?: string }>;
+}) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const categoryWidth = Math.floor((width - GUTTER * 2 - 4 * 8) / 5);
   const bannerHeight = Math.min(310, Math.max(250, Math.round(width * 0.49)));
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+    <View style={{ flex: 1, backgroundColor: "#312E81" }}>
       <SafeAreaView
-        style={[s.root, { backgroundColor: "transparent" }]}
+        style={[s.root, { backgroundColor: "#312E81" }]}
         edges={["top", "left", "right"]}
       >
-        <StatusBar
-          style="light"
-          backgroundColor="#312E81"
-          translucent={false}
-        />
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={{ backgroundColor: "#FFFFFF" }}
@@ -979,9 +892,30 @@ function HomeSkeleton() {
             </ScrollView>
           </View>
 
-          {/* Banner placeholder */}
+          {/* Show the cached first banner during product loading instead of
+              hiding the carousel behind a skeleton. */}
           <View style={{ paddingHorizontal: GUTTER, paddingTop: 12 }}>
-            <Skeleton height={bannerHeight} radius={28} />
+            {banners[0]?.imageUrl ? (
+              <View
+                style={{
+                  height: bannerHeight,
+                  borderRadius: 28,
+                  overflow: "hidden",
+                  backgroundColor: "#EEF2FF",
+                }}
+              >
+                <ExpoImage
+                  source={{ uri: banners[0].imageUrl }}
+                  style={{ width: "100%", height: "100%" }}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  transition={120}
+                />
+              </View>
+            ) : (
+              <Skeleton height={bannerHeight} radius={28} />
+            )}
           </View>
 
           {/* Product shelf placeholders */}
@@ -1016,7 +950,6 @@ function HomeSkeleton() {
             </View>
           ))}
         </ScrollView>
-
       </SafeAreaView>
     </View>
   );
@@ -1493,6 +1426,9 @@ const homeShelfCache = new Map<ShelfKey, Product[]>();
 const HOME_PRODUCTS_STORAGE_KEY = "odikart:home-products:v2";
 const HOME_CATEGORIES_STORAGE_KEY = "odikart:home-categories:v1";
 const HOME_SHELVES_STORAGE_KEY = "odikart:home-shelves:v2";
+const HOME_BANNERS_STORAGE_KEY = "odikart:home-banners:v1";
+let homeBannersMemoryCache: HomeBanner[] = [];
+
 
 type PersistedCache<T> = { savedAt: number; data: T };
 
@@ -1550,6 +1486,7 @@ async function writeHomeCache<T>(key: string, data: T): Promise<void> {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+
   const headerSurfaceProgress = useRef(new Animated.Value(0)).current;
   const whiteSurfaceOpacity = headerSurfaceProgress.interpolate({
     inputRange: [0, 36, 84],
@@ -2008,12 +1945,11 @@ export default function HomeScreen() {
   const bannerTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const impressedBannerIds = useRef<Set<string>>(new Set());
   const [bannerIndex, setBannerIndex] = useState(0);
-  const [homeBanners, setHomeBanners] = useState<HomeBanner[]>(
-    FALLBACK_HOME_BANNERS,
-  );
+  const [homeBanners, setHomeBanners] = useState<HomeBanner[]>(() => homeBannersMemoryCache);
   // Products selected for a banner in the admin dashboard.
   const [bannerCollection, setBannerCollection] = useState<{
     title: string;
+    imageUrl?: string;
     products: Product[];
   } | null>(null);
   // Category banners use memory + AsyncStorage for instant repeat visits.
@@ -2029,19 +1965,22 @@ export default function HomeScreen() {
         return;
       }
 
-      // Render memory cache immediately, then disk cache if this is a cold visit.
+      // Paint a cached banner immediately, but start network refresh without
+      // waiting for disk cache I/O. This improves cold category switches.
       const memoryCached = categoryBannerMemoryCache.get(categoryId);
       if (memoryCached?.imageUrl) {
         setCategoryBanner(memoryCached);
+        void ExpoImage.prefetch(memoryCached.imageUrl);
       } else {
         setCategoryBanner(null);
-        const diskCached = await readHomeCache<HomeBanner>(
-          categoryBannerStorageKey(categoryId),
+        void readHomeCache<HomeBanner>(categoryBannerStorageKey(categoryId)).then(
+          (diskCached) => {
+            if (!isCurrent || !diskCached?.imageUrl) return;
+            categoryBannerMemoryCache.set(categoryId, diskCached);
+            setCategoryBanner((current) => current?.imageUrl ? current : diskCached);
+            void ExpoImage.prefetch(diskCached.imageUrl);
+          },
         );
-        if (isCurrent && diskCached?.imageUrl) {
-          categoryBannerMemoryCache.set(categoryId, diskCached);
-          setCategoryBanner(diskCached);
-        }
       }
 
       // Refresh in the background; never block a cached banner on the API.
@@ -2157,7 +2096,32 @@ export default function HomeScreen() {
   }, [selectedCategory]);
 
   // Fetch only banners eligible for the Home main placement.
+  // Show cached banners immediately; refresh the list and images in the background.
   const loadHomeBanners = useCallback(async () => {
+    if (homeBannersMemoryCache.length > 0) {
+      setHomeBanners(homeBannersMemoryCache);
+      void ExpoImage.prefetch(
+        homeBannersMemoryCache.slice(0, 2).map((item) => item.imageUrl!),
+      );
+    } else {
+      // Hydrate disk cache in parallel with the API request, never before it.
+      void readHomeCache<HomeBanner[]>(HOME_BANNERS_STORAGE_KEY).then(
+        (diskCached) => {
+          if (
+            homeBannersMemoryCache.length === 0 &&
+            Array.isArray(diskCached) &&
+            diskCached.length > 0
+          ) {
+            homeBannersMemoryCache = diskCached;
+            setHomeBanners(diskCached);
+            void ExpoImage.prefetch(
+              diskCached.slice(0, 2).map((item) => item.imageUrl!),
+            );
+          }
+        },
+      );
+    }
+
     try {
       const response = await api.get("/banners", {
         params: { placement: "home_main" },
@@ -2237,11 +2201,23 @@ export default function HomeScreen() {
         })
         .filter((banner: HomeBanner) => Boolean(banner.imageUrl));
 
-      // An empty API result means no active, eligible Home banners exist.
+      // Cache even an empty successful result so the API remains the source of truth.
+      homeBannersMemoryCache = normalized;
       setHomeBanners(normalized);
       bannerIndexRef.current = 0;
       setBannerIndex(0);
       bannerRef.current?.scrollTo({ x: 0, animated: false });
+
+      // Prefetch the first two slides first; remaining slides can warm the cache
+      // without delaying the first visible banner.
+      const imageUrls = normalized.map((banner) => banner.imageUrl!).filter(Boolean);
+      if (imageUrls.length > 0) {
+        void ExpoImage.prefetch(imageUrls.slice(0, 2));
+        if (imageUrls.length > 2) {
+          void ExpoImage.prefetch(imageUrls.slice(2));
+        }
+      }
+      void writeHomeCache(HOME_BANNERS_STORAGE_KEY, normalized);
     } catch (error: any) {
       console.log(
         "HOME BANNERS API ERROR:",
@@ -2318,8 +2294,25 @@ export default function HomeScreen() {
 
     if (selectedProducts.length > 0) {
       stopBannerAuto();
+      const bannerImageCandidate =
+        raw?.mobileImage?.secure_url ||
+        raw?.mobileImage?.url ||
+        (typeof raw?.mobileImage === "string" ? raw.mobileImage : undefined) ||
+        raw?.image?.secure_url ||
+        raw?.image?.url ||
+        (typeof raw?.image === "string" ? raw.image : undefined) ||
+        raw?.imageUrl ||
+        raw?.bannerImage ||
+        banner.imageUrl;
+      const bannerImageUrl =
+        typeof bannerImageCandidate === "string" &&
+        /^https?:\/\//i.test(bannerImageCandidate)
+          ? bannerImageCandidate
+          : undefined;
+
       setBannerCollection({
         title: String(raw?.title || banner.title || "Featured products"),
+        imageUrl: bannerImageUrl,
         products: selectedProducts as Product[],
       });
       return;
@@ -3193,9 +3186,13 @@ export default function HomeScreen() {
     return String(label || `Option ${index + 1}`);
   };
 
+  const openLoginModal = () => {
+    router.push("/login-modal");
+  };
+
   const openVariantPicker = (product: Product) => {
     if (!isAuthenticated) {
-      showToast("Log in to use your cart.", "error");
+      openLoginModal();
       return;
     }
     if (isOutOfStock(product)) {
@@ -3235,7 +3232,7 @@ export default function HomeScreen() {
     skuOverride?: string,
   ) => {
     if (!isAuthenticated) {
-      showToast("Log in to use your cart.", "error");
+      openLoginModal();
       return;
     }
     if (isOutOfStock(p) && delta > 0) {
@@ -3416,6 +3413,10 @@ export default function HomeScreen() {
   // block heart taps on every other product.
   const wishBusyIds = useRef<Set<string>>(new Set());
   const handleWishlist = async (productId: string) => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
     const id = String(productId);
     if (!id || wishBusyIds.current.has(id)) return;
     const wasWished = wishlistIds.includes(id);
@@ -3644,7 +3645,7 @@ export default function HomeScreen() {
     products.length === 0 &&
     (initialLoading || categoriesLoading || shelvesLoading)
   ) {
-    return <HomeSkeleton />;
+    return <HomeSkeleton banners={homeBanners} />;
   }
 
   if (error && products.length === 0) {
@@ -3653,7 +3654,6 @@ export default function HomeScreen() {
         style={s.offlineScreen}
         edges={["top", "left", "right", "bottom"]}
       >
-        <StatusBar style="dark" backgroundColor="#ffffff" translucent={false} />
         <View style={s.offlineContent}>
           <View style={s.offlineImageWrap}>
             <CachedImage
@@ -3817,16 +3817,11 @@ export default function HomeScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={s.root}>
+      <View style={[s.root, { backgroundColor: "#312E81" }]}>
         <SafeAreaView
           style={[s.root, { backgroundColor: "#312E81" }]}
           edges={["top", "left", "right"]}
         >
-          <StatusBar
-            style="light"
-            backgroundColor="#312E81"
-            translucent={false}
-          />
           <Animated.View
             pointerEvents="none"
             style={{
@@ -3848,10 +3843,12 @@ export default function HomeScreen() {
             // Pin one combined search + category container. Keeping both inside
             // the same sticky child ensures the search input stays above the
             // existing category row on Android and iOS while scrolling.
-            style={[
-              { backgroundColor: "transparent", zIndex: 1, elevation: 1 },
-              (searchFocused || searchActive) && { backgroundColor: "#FFFFFF" },
-            ]}
+            style={{
+              backgroundColor:
+                searchFocused || searchActive ? "#FFFFFF" : "transparent",
+              zIndex: 1,
+              elevation: 1,
+            }}
             contentContainerStyle={
               searchFocused || searchActive
                 ? { flexGrow: 1, backgroundColor: "#FFFFFF" }
@@ -3879,10 +3876,9 @@ export default function HomeScreen() {
               style={[
                 s.headerHero,
                 {
-                  paddingTop: searchFocused || searchActive ? 0 : 8,
-                  paddingBottom: searchFocused || searchActive ? 0 : 15,
+                  paddingTop: 8,
+                  paddingBottom: 15,
                   backgroundColor: "#312E81",
-                  ...(searchFocused || searchActive ? { height: 0 } : {}),
                 },
               ]}
               onLayout={(event) => {
@@ -3899,12 +3895,7 @@ export default function HomeScreen() {
                   { backgroundColor: "#FFFFFF", opacity: whiteSurfaceOpacity },
                 ]}
               />
-              <View
-                style={[
-                  s.headerTop,
-                  (searchFocused || searchActive) && { display: "none" },
-                ]}
-              >
+              <View style={[s.headerTop]}>
                 <Pressable
                   style={s.locationBtn}
                   onPress={() => {
@@ -3963,7 +3954,13 @@ export default function HomeScreen() {
                 {/* Profile shortcut */}
                 <Pressable
                   style={s.profileHeaderBtn}
-                  onPress={() => router.push("/(tabs)/profile")}
+                  onPress={() => {
+                    if (!isAuthenticated) {
+                      router.push("/login-modal");
+                      return;
+                    }
+                    router.push("/(tabs)/profile");
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="Open profile"
                   hitSlop={8}
@@ -3975,14 +3972,7 @@ export default function HomeScreen() {
 
             {/* [1] Sticky search container: the search icon, TextInput and
               action buttons remain pinned together while scrolling. */}
-            <View
-              style={[
-                s.stickyHeaderBackdrop,
-                (searchFocused || searchActive) && {
-                  backgroundColor: "#FFFFFF",
-                },
-              ]}
-            >
+            <View style={[s.stickyHeaderBackdrop]}>
               <View style={s.stickyHeader}>
                 <View style={s.searchWrap}>
                   <View style={s.searchBox}>
@@ -4446,12 +4436,11 @@ export default function HomeScreen() {
                                   accessibilityRole="button"
                                 >
                                   <CachedImage
-                                    source={
-                                      b.imageUrl
-                                        ? { uri: b.imageUrl }
-                                        : b.source
-                                    }
+                                    source={{ uri: b.imageUrl! }}
                                     style={s.bannerImage}
+                                    priority="high"
+                                    cachePolicy="memory-disk"
+                                    recyclingKey={b.id}
                                     resizeMode="cover"
                                     onError={(e) =>
                                       console.log(
@@ -4591,87 +4580,13 @@ export default function HomeScreen() {
                                         }}
                                         style={s.bannerImage}
                                         resizeMode="cover"
+                                        priority="high"
+                                        transition={80}
                                         onError={() => setCategoryBanner(null)}
                                       />
                                     </Pressable>
                                   </View>
-                                ) : (
-                                  <LinearGradient
-                                    colors={["#2563EB", "#312E81", "#7C3AED"]}
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 1, y: 1 }}
-                                    style={s.categoryHero}
-                                  >
-                                    <View style={s.categoryHeroGlow} />
-                                    <View style={s.categoryHeroCopy}>
-                                      <Pressable
-                                        onPress={() => {
-                                          setSelectedCategory("All");
-                                          setSelectedSubCategory("All");
-                                          setSelectedBrand("All");
-                                          setPriceRange([0, 5000]);
-                                          setMinPriceInput("0");
-                                          setMaxPriceInput("5000");
-                                          setVisibleCount(PAGE_SIZE);
-                                        }}
-                                        style={s.categoryBackButton}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Back to all categories"
-                                      >
-                                        <Ionicons
-                                          name="arrow-back"
-                                          size={15}
-                                          color="#FFFFFF"
-                                        />
-                                        <Text style={s.categoryBackText}>
-                                          All categories
-                                        </Text>
-                                      </Pressable>
-                                      <Text style={s.categoryEyebrow}>
-                                        CURATED FOR YOU
-                                      </Text>
-                                      <Text style={s.categoryHeroTitle}>
-                                        {activeCategory?.name ||
-                                          "Shop category"}
-                                      </Text>
-                                      <Text style={s.categoryHeroSubtitle}>
-                                        Find your favourites in one place
-                                      </Text>
-                                      <View style={s.categoryCountPill}>
-                                        <Ionicons
-                                          name="grid-outline"
-                                          size={13}
-                                          color="#FFFFFF"
-                                        />
-                                        <Text style={s.categoryCountText}>
-                                          {sortedResults.length} products to
-                                          explore
-                                        </Text>
-                                      </View>
-                                    </View>
-                                    <View style={s.categoryHeroMedia}>
-                                      {categoryImage ? (
-                                        <CachedImage
-                                          source={{ uri: categoryImage }}
-                                          style={s.categoryHeroImage}
-                                          resizeMode="cover"
-                                          accessibilityLabel={`${activeCategory?.name || "Category"} collection`}
-                                        />
-                                      ) : (
-                                        <View
-                                          style={s.categoryHeroImageFallback}
-                                        >
-                                          <Ionicons
-                                            name="storefront-outline"
-                                            size={42}
-                                            color="#FFFFFF"
-                                          />
-                                        </View>
-                                      )}
-                                    </View>
-                                    <View style={s.categoryHeroDecor} />
-                                  </LinearGradient>
-                                )}
+                                ) : null}
 
                                 <View style={s.categorySubHeader}>
                                   <View>
@@ -5207,7 +5122,7 @@ export default function HomeScreen() {
             visible={!!variantPickerProduct}
             transparent
             animationType="slide"
-            statusBarTranslucent
+            statusBarTranslucent={false}
             onRequestClose={() => setVariantPickerProduct(null)}
           >
             <View style={s.variantPickerOverlay}>
@@ -5445,7 +5360,7 @@ export default function HomeScreen() {
             visible={locationOpen}
             transparent
             animationType="slide"
-            statusBarTranslucent
+            statusBarTranslucent={false}
             onRequestClose={closeLocation}
           >
             <View style={s.overlay}>
@@ -5772,7 +5687,7 @@ export default function HomeScreen() {
             visible={voiceOpen}
             transparent
             animationType="slide"
-            statusBarTranslucent
+            statusBarTranslucent={false}
             onRequestClose={closeVoice}
           >
             <View style={s.overlay}>
@@ -5925,7 +5840,7 @@ export default function HomeScreen() {
             visible={!!previewProduct}
             transparent
             animationType="none"
-            statusBarTranslucent
+            statusBarTranslucent={false}
             onRequestClose={() => setPreviewProduct(null)}
           >
             <View style={s.productPreviewOverlay}>
@@ -6133,7 +6048,7 @@ export default function HomeScreen() {
             visible={permissionPrompt !== null}
             transparent
             animationType="slide"
-            statusBarTranslucent
+            statusBarTranslucent={false}
             onRequestClose={() => {
               if (permissionPrompt === "location") {
                 continueToNotificationPrompt();
@@ -6262,7 +6177,7 @@ export default function HomeScreen() {
             transparent
             animationType="slide"
             onRequestClose={() => setFilterOpen(false)}
-            statusBarTranslucent
+            statusBarTranslucent={false}
           >
             <View style={s.filterOverlay}>
               <Pressable
@@ -6954,11 +6869,12 @@ export default function HomeScreen() {
             </View>
           </Modal>
 
-          {/* Curated products opened by tapping a banner with admin-selected products. */}
+          {/* Modern full-bleed banner collection screen. Banner starts behind status bar. */}
           <Modal
             visible={bannerCollection !== null}
             animationType="slide"
             presentationStyle="fullScreen"
+            statusBarTranslucent={false}
             onRequestClose={() => {
               setBannerCollection(null);
               startBannerAuto();
@@ -6968,102 +6884,69 @@ export default function HomeScreen() {
               style={{ flex: 1, backgroundColor: C.bg }}
               edges={["top", "left", "right", "bottom"]}
             >
-              <View
-                style={{
-                  minHeight: 60,
-                  paddingHorizontal: GUTTER,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  backgroundColor: "#FFFFFF",
-                  borderBottomWidth: 1,
-                  borderBottomColor: C.line,
-                }}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 26 }}
               >
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text
-                    numberOfLines={1}
-                    style={{ color: C.ink, fontSize: 17, fontWeight: "800" }}
-                  >
+                {/* Edge-to-edge hero image, including behind the status bar. */}
+                {bannerCollection?.imageUrl ? (
+                  <View style={{ width: "100%", height: 238, backgroundColor: C.brandDark, overflow: "hidden" }}>
+                    <ExpoImage
+                      source={{ uri: bannerCollection.imageUrl }}
+                      style={{ width: "100%", height: "100%" }}
+                      contentFit="cover"
+                      priority="high"
+                      transition={100}
+                    />
+                    <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 68, backgroundColor: "rgba(0,0,0,0.12)" }} />
+                    <Pressable
+                      onPress={() => { setBannerCollection(null); startBannerAuto(); }}
+                      style={{ position: "absolute", top: 12, right: 16, width: 42, height: 42, borderRadius: 21, backgroundColor: "rgba(255,255,255,0.96)", alignItems: "center", justifyContent: "center", elevation: 5, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close banner products"
+                    >
+                      <Ionicons name="close" size={23} color={C.ink} />
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {/* Collection title / count */}
+                <View style={{ paddingHorizontal: GUTTER, paddingTop: 16, paddingBottom: 14, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: C.line }}>
+                  <Text numberOfLines={2} style={{ color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.35 }}>
                     {bannerCollection?.title || "Featured products"}
                   </Text>
-                  <Text
-                    style={{ color: C.inkSoft, fontSize: 11, marginTop: 3 }}
-                  >
-                    {bannerCollection?.products.length || 0} selected products
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => {
-                    setBannerCollection(null);
-                    startBannerAuto();
-                  }}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close banner products"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: C.brandSoft,
-                  }}
-                >
-                  <Ionicons name="close" size={22} color={C.brandDark} />
-                </Pressable>
-              </View>
-
-              {bannerCollection?.products.length ? (
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{
-                    paddingHorizontal: GUTTER,
-                    paddingTop: 16,
-                    paddingBottom: 28,
-                  }}
-                >
-                  <View style={s.grid}>
-                    {bannerCollection.products.map((item, index) =>
-                      renderCard(item, gridCardW, index),
-                    )}
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 7 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.brand, marginRight: 7 }} />
+                    <Text style={{ color: C.inkSoft, fontSize: 13, fontWeight: "600" }}>
+                      {bannerCollection?.products.length || 0} handpicked products
+                    </Text>
                   </View>
-                </ScrollView>
-              ) : (
-                <View
-                  style={{
-                    flex: 1,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 28,
-                  }}
-                >
-                  <Ionicons name="bag-outline" size={42} color={C.inkMuted} />
-                  <Text
-                    style={{
-                      marginTop: 12,
-                      color: C.ink,
-                      fontSize: 16,
-                      fontWeight: "700",
-                    }}
-                  >
-                    No products available
-                  </Text>
-                  <Text
-                    style={{
-                      marginTop: 6,
-                      color: C.inkSoft,
-                      fontSize: 13,
-                      textAlign: "center",
-                    }}
-                  >
-                    The products selected for this banner may be unavailable
-                    right now.
-                  </Text>
                 </View>
-              )}
+
+
+                {bannerCollection?.products.length ? (
+                  <View style={{ paddingTop: 14 }}>
+                    <View style={s.grid}>
+                      {bannerCollection.products.map((item, index) =>
+                        renderCard(item, gridCardW, index),
+                      )}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ flex: 1, minHeight: 260, alignItems: "center", justifyContent: "center", padding: 28 }}>
+                    <Ionicons name="bag-outline" size={42} color={C.inkMuted} />
+                    <Text style={{ marginTop: 12, color: C.ink, fontSize: 16, fontWeight: "700" }}>
+                      No products available
+                    </Text>
+                    <Text style={{ marginTop: 6, color: C.inkSoft, fontSize: 13, textAlign: "center" }}>
+                      The products selected for this banner may be unavailable right now.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
             </SafeAreaView>
           </Modal>
+
 
           <Toast toast={toast} />
         </SafeAreaView>
@@ -8227,11 +8110,9 @@ const s = StyleSheet.create({
 
   /* Search discovery page only */
   suggestWrap: {
-    flexGrow: 1,
-    minHeight: 520,
     paddingTop: 18,
     paddingHorizontal: GUTTER,
-    paddingBottom: 34,
+    paddingBottom: 24,
     backgroundColor: "#FFFFFF",
   },
   searchWelcomeCard: {
@@ -8950,7 +8831,7 @@ const s = StyleSheet.create({
     color: "#ffffff",
   },
   topBtnGradient: {
-    minHeight: 40,
+    minHeight: 9,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",

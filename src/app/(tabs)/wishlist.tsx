@@ -18,7 +18,6 @@ import {
 } from "react-native";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Ionicons } from "@expo/vector-icons";
@@ -1234,7 +1233,6 @@ export default function WishlistScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" backgroundColor="#FFFFFF" translucent={false} />
 
       <View style={styles.container}>
         {/* AMBIENT BACKGROUND */}

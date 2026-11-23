@@ -6,6 +6,8 @@ import {
   Easing,
   Modal,
   Pressable,
+  Platform,
+  StatusBar as NativeStatusBar,
   StyleSheet,
   Text,
   View,
@@ -269,6 +271,24 @@ function FloatingTabBar({ state, navigation }: any) {
   const wishlistTabRef = useRef<View>(null);
   const currentRoute = state.routes[state.index];
   const hideTabBar = currentRoute?.params?.hideTabBar === true;
+
+  // The focused tab is the single source of truth for status-bar icon color.
+  // Expo Router keeps tab screens mounted, so individual tab screens must not
+  // render their own StatusBar components or setBarStyle calls.
+  useEffect(() => {
+    const isHomeTab = currentRoute?.name === "index";
+
+    NativeStatusBar.setHidden(false, false);
+    NativeStatusBar.setBarStyle(
+      isHomeTab ? "light-content" : "dark-content",
+      false,
+    );
+
+    if (Platform.OS === "android") {
+      // Android edge-to-edge draws the page surface behind the status bar.
+      NativeStatusBar.setTranslucent(true);
+    }
+  }, [currentRoute?.name]);
 
   const measureWishlistTarget = () => {
     requestAnimationFrame(() => {

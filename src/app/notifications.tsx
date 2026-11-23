@@ -26,8 +26,8 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import api from "../api/api";
 import { colors } from "../theme/colors";
@@ -310,7 +310,10 @@ const extractNotifications = (data: any): NotificationItem[] => {
 ========================================================= */
 
 export default function NotificationsScreen() {
+  // Status bar appearance is controlled centrally by TabsLayout.
+  // Keep this screen free of local StatusBar components or imperative mutations.
   const router = useRouter();
+
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
@@ -406,8 +409,30 @@ export default function NotificationsScreen() {
     } catch (error: any) {
       console.log("NOTIFICATIONS LOAD ERROR:", error?.response?.data || error);
 
-      // Keep cached/current notifications on network failure.
-      if (!hasLoadedOnce.current && notifications.length === 0) {
+      const status = error?.response?.status;
+      const authMissing =
+        status === 401 ||
+        status === 403 ||
+        /token|unauthori[sz]ed|authentication/i.test(
+          String(error?.response?.data?.message || error?.message || ""),
+        );
+
+      if (authMissing) {
+        // No valid login token: don't show stale notifications from a previous account.
+        setNotifications([]);
+        try {
+          await AsyncStorage.setItem(
+            NOTIFICATIONS_CACHE_KEY,
+            JSON.stringify({
+              notifications: [],
+              notificationsEnabled: true,
+              cachedAt: new Date().toISOString(),
+            }),
+          );
+        } catch (cacheError) {
+          console.log("NOTIFICATIONS EMPTY CACHE WRITE ERROR:", cacheError);
+        }
+      } else if (!hasLoadedOnce.current && notifications.length === 0) {
         showDesignedAlert(
           "Notifications",
           error?.response?.data?.message || error?.message || "Unable to load notifications.",
@@ -760,7 +785,8 @@ export default function NotificationsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar style="dark" backgroundColor="#FFFFFF" translucent={false} />
+      <StatusBar style="dark" />
+        <StatusBar style="dark" />
         <View style={styles.header}>
           <Pressable style={styles.iconButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={21} color={colors.text} />
@@ -816,7 +842,6 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" backgroundColor="#FFFFFF" translucent={false} />
       {/* HEADER */}
 
       <View style={styles.header}>
@@ -1153,43 +1178,40 @@ export default function NotificationsScreen() {
           <View style={styles.emptyCard}>
             <View style={styles.emptyIllustrationWrap}>
               <Image
-                source={require("../../assets/images/notifications/illustrations/empty-notifications.png")}
+                source={require("../../assets/images/empty-notifications.png")}
                 style={styles.emptyIllustration}
                 resizeMode="contain"
               />
             </View>
-            {/* 
-            <Text
-              style={styles.emptyTitle}
-            >
-              {filter === "all" ? "No notifications yet" : `No ${filter === "order" ? "order" : filter === "offer" ? "offer" : "update"} notifications`}
+
+            <Text style={styles.emptyTitle}>
+              {filter === "all"
+                ? "No notifications found"
+                : `No ${filter === "order" ? "order" : filter === "offer" ? "offer" : filter === "account" ? "account" : "other"} notifications found`}
             </Text>
 
-            <Text
-              style={styles.emptyMessage}
-            >
+            <Text style={styles.emptyMessage}>
               {filter === "all"
-                ? "When something important happens, your updates will appear here."
-                : "Try another category to see more updates."}
+                ? "You're all caught up! Updates about your orders, deliveries and offers will appear here."
+                : "There are no updates in this category right now. Try another category."}
             </Text>
 
             <Pressable
-              style={styles.refreshButton}
-              onPress={() =>
-                loadNotifications(true)
-              }
+              style={({ pressed }) => [
+                styles.refreshButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => loadNotifications(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh notifications"
             >
               <Ionicons
                 name="refresh-outline"
-                size={17}
+                size={16}
                 color="#FFFFFF"
               />
-              <Text
-                style={styles.refreshButtonText}
-              >
-                Refresh
-              </Text>
-            </Pressable> */}
+              <Text style={styles.refreshButtonText}>Refresh</Text>
+            </Pressable>
           </View>
         )}
 
@@ -2085,9 +2107,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 24,
     borderRadius: 24,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
+    // backgroundColor: colors.surface,
+    // borderWidth: 1,
+    // borderColor: colors.borderLight,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2096,7 +2118,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 25,
-    backgroundColor: "#EEF2FF",
+    // backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,

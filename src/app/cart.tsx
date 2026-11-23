@@ -1,5 +1,3 @@
-
-
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
@@ -17,8 +15,9 @@ import {
 } from "react-native";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useFocusEffect, useRouter } from "expo-router";
@@ -276,6 +275,32 @@ function CartSkeleton() {
 
         <SkeletonBlock width="57%" height={52} radius={16} />
       </View>
+    </SafeAreaView>
+  );
+}
+
+function CartLoadingVideo() {
+  const player = useVideoPlayer(
+    require("../../assets/images/cart.mp4"),
+    (player) => {
+      player.loop = true;
+      player.muted = true;
+      player.play();
+    },
+  );
+
+  return (
+    <SafeAreaView
+      style={styles.videoLoadingScreen}
+      edges={["top", "left", "right"]}
+    >
+      <StatusBar style="dark" backgroundColor="#FFFFFF" translucent={false} />
+      <VideoView
+        player={player}
+        style={styles.loadingVideo}
+        nativeControls={false}
+        contentFit="contain"
+      />
     </SafeAreaView>
   );
 }
@@ -715,7 +740,7 @@ export default function CartScreen() {
   const payableSubtotal = subtotal;
 
   if (loading) {
-    return <CartSkeleton />;
+    return <CartLoadingVideo />;
   }
 
   if (items.length === 0) {
@@ -769,7 +794,11 @@ export default function CartScreen() {
               style={styles.primaryButtonGradient}
             >
               <Text style={styles.primaryButtonText}>Explore products</Text>
-              <Ionicons name="arrow-forward" size={19} color={colors.textWhite} />
+              <Ionicons
+                name="arrow-forward"
+                size={19}
+                color={colors.textWhite}
+              />
             </LinearGradient>
           </Pressable>
         </View>
@@ -1176,7 +1205,9 @@ export default function CartScreen() {
 
             <Text style={styles.clearModalTitle}>Clear your cart?</Text>
             <Text style={styles.clearModalMessage}>
-              Are you sure you want to remove all {totalItems === 1 ? "item" : `${totalItems} items`} from your cart? This action cannot be undone.
+              Are you sure you want to remove all{" "}
+              {totalItems === 1 ? "item" : `${totalItems} items`} from your
+              cart? This action cannot be undone.
             </Text>
 
             <View style={styles.clearModalActions}>
@@ -1226,6 +1257,16 @@ const styles = StyleSheet.create({
      CART SKELETON
 
   ========================= */
+
+  videoLoadingScreen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+
+  loadingVideo: {
+    flex: 1,
+    width: "100%",
+  },
 
   skeletonScreen: {
     flex: 1,

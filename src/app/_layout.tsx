@@ -1,15 +1,15 @@
-import * as Notifications from "expo-notifications";
-import { Stack, router } from "expo-router";
-import * as ExpoSplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Linking, View } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Stack, router } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as Notifications from "expo-notifications";
+import * as ExpoSplashScreen from "expo-splash-screen";
 
-import OdikartSplashScreen from "../components/OdikartSplashScreen";
-import { OdikartToastProvider } from "../components/OdikartToast";
 import { AuthProvider } from "../context/AuthContext";
+import { OdikartToastProvider } from "../components/OdikartToast";
+import OdikartSplashScreen from "../components/OdikartSplashScreen";
 import { registerForNotifications } from "../services/notificationService";
 
 // Keep the native launch screen as short as possible; the animated React Native
@@ -29,7 +29,7 @@ function NotificationInitializer() {
     };
 
     const openNotification = async (
-      response: Notifications.NotificationResponse,
+      response: Notifications.NotificationResponse
     ) => {
       const data = response.notification.request.content.data as {
         route?: string;
@@ -61,14 +61,13 @@ function NotificationInitializer() {
 
     void register();
 
-    const receivedSubscription = Notifications.addNotificationReceivedListener(
-      (notification) => {
+    const receivedSubscription =
+      Notifications.addNotificationReceivedListener((notification) => {
         console.log(
           "Odikart notification received:",
-          notification.request.content.title,
+          notification.request.content.title
         );
-      },
-    );
+      });
 
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener(openNotification);
@@ -121,42 +120,15 @@ function AppContent() {
     );
   }
 
+  // Do not mount a global StatusBar here. Individual screens own their status
+  // bar appearance so Home can use light icons on its indigo header.
   return (
-    <>
-      <StatusBar style="dark" backgroundColor="#F8FAFC" translucent={false} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: "#F8FAFC" },
-        }}
-      >
-        {/* Product details opens as an expandable native bottom sheet. */}
-        <Stack.Screen
-          name="products/[id]"
-          options={{
-            presentation: "formSheet",
-            sheetAllowedDetents: [0.65, 0.95],
-            sheetInitialDetentIndex: 0,
-            sheetGrabberVisible: true,
-            sheetCornerRadius: 26,
-            sheetExpandsWhenScrolledToEdge: true,
-            gestureEnabled: true,
-            contentStyle: { backgroundColor: "#FFFFFF" },
-          }}
-        />
-
-        {/* Render login as a transparent route above the screen that opened it. */}
-        <Stack.Screen
-          name="login-modal"
-          options={{
-            presentation: "transparentModal",
-            animation: "fade",
-            gestureEnabled: true,
-            contentStyle: { backgroundColor: "transparent" },
-          }}
-        />
-      </Stack>
-    </>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: "#F8FAFC" },
+      }}
+    />
   );
 }
 

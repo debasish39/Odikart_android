@@ -28,10 +28,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams } from "expo-router";
-import { StatusBar } from "expo-status-bar";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { setStatusBarStyle, StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Share from "react-native-share";
+import { VideoView, useVideoPlayer } from "expo-video";
 
 import {
   Gesture,
@@ -867,6 +868,29 @@ function ReviewModal({
   );
 }
 
+function ProductDetailsLoadingVideo() {
+  const player = useVideoPlayer(
+    require("../../../assets/images/odikart-product-carousel-loader.mp4"),
+    (player) => {
+      player.loop = true;
+      player.muted = true;
+      player.play();
+    },
+  );
+
+  return (
+    <View style={styles.videoLoadingScreen}>
+      <VideoView
+        player={player}
+        style={styles.loadingVideo}
+        nativeControls={false}
+        contentFit="contain"
+      />
+    </View>
+  );
+}
+
+
 /* =========================================================
    PRODUCT DETAILS SKELETON
 ========================================================= */
@@ -1110,6 +1134,18 @@ export default function ProductDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const insets = useSafeAreaInsets();
+
+  // This screen needs dark system icons. Restore the Home screen's white
+  // system icons when this screen loses focus.
+  useFocusEffect(
+    useCallback(() => {
+      setStatusBarStyle("dark", true);
+
+      return () => {
+        setStatusBarStyle("light", true);
+      };
+    }, []),
+  );
 
   const { user, isAuthenticated } = useAuth();
 
@@ -2556,7 +2592,7 @@ export default function ProductDetailsScreen() {
   ===================================================== */
 
   if (loading) {
-    return <ProductDetailsSkeleton />;
+    return <ProductDetailsLoadingVideo />;
   }
 
   /* =====================================================
@@ -2593,10 +2629,9 @@ export default function ProductDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Transparent system bar overlays the product image. White icons are
-          paired with a subtle top scrim so they remain readable on bright photos. */}
+      {/* Dark system status-bar icons while Product Details is focused. */}
       <StatusBar
-        style={showCompactNavbar ? "dark" : "light"}
+        style="dark"
         translucent
         backgroundColor="transparent"
       />
@@ -4167,6 +4202,16 @@ const styles = StyleSheet.create({
   },
   alertCancelButtonText: {
     color: colors.text,
+  },
+  videoLoadingScreen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingVideo: {
+    width: "100%",
+    height: "100%",
   },
   container: {
     flex: 1,

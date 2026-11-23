@@ -8,9 +8,9 @@ import {
   FlatList,
   Image,
   Pressable,
+  Platform,
   RefreshControl,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { VideoView, useVideoPlayer } from "expo-video";
 import notFoundImage from "../../../assets/images/search.webp";
 import { getToken } from "../../api/authStorage";
 import {
@@ -763,6 +764,28 @@ function CategoryHeadingSkeleton() {
   );
 }
 
+function CategoriesLoadingVideo() {
+  const player = useVideoPlayer(
+    require("../../../assets/images/odikart-product-carousel-loader.mp4"),
+    (player) => {
+      player.loop = true;
+      player.muted = true;
+      player.play();
+    },
+  );
+
+  return (
+    <View style={styles.videoLoadingScreen}>
+      <VideoView
+        player={player}
+        style={styles.loadingVideo}
+        nativeControls={false}
+        contentFit="contain"
+      />
+    </View>
+  );
+}
+
 export default function CategoriesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -1030,6 +1053,7 @@ export default function CategoriesScreen() {
 
   useFocusEffect(
     useCallback(() => {
+
       if (!initializedRef.current) {
         initializedRef.current = true;
         const routeId = String(params.categoryId || "");
@@ -1204,9 +1228,12 @@ export default function CategoriesScreen() {
 
   const openCart = () => router.push("/cart" as any);
 
+  if (loading && categories.length === 0 && products.length === 0) {
+    return <CategoriesLoadingVideo />;
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F7F8FC" />
       <View pointerEvents="none" style={styles.pageShineLayer}>
         <ShineOverlay />
       </View>
@@ -1510,6 +1537,16 @@ export default function CategoriesScreen() {
 }
 
 const styles = StyleSheet.create({
+  videoLoadingScreen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingVideo: {
+    width: "100%",
+    height: "100%",
+  },
   safeArea: { flex: 1, backgroundColor: "#F4F6FB" },
   pageShineLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -2123,3 +2160,4 @@ const styles = StyleSheet.create({
     maxWidth: 220,
   },
 });
+ 
